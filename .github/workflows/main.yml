@@ -30,12 +30,12 @@ name: AI News Crawler
        - name: Install dependencies
         run: |
           cd backend
-          # Install all except firecrawl-py first
-          pip install fastapi uvicorn supabase openai python-dotenv aiohttp 
-  python-dateutil beautifulsoup4 lxml pydantic pydantic-settings
-          # Try to install firecrawl-py, but continue if it fails
-          pip install firecrawl-py==1.5.0 || pip install firecrawl-py || echo 
-  "Firecrawl installation failed, continuing..."
+          pip install -r requirements.txt || (
+            grep -v firecrawl-py requirements.txt > temp_requirements.txt
+            pip install -r temp_requirements.txt
+            pip install git+https://github.com/mendableai/firecrawl-py.git
+          )
+
 
 
       - name: Run crawler
