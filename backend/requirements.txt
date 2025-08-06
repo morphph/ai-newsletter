@@ -1,5 +1,5 @@
 # Core dependencies from original project
-firecrawl-py==1.5.0
+# firecrawl-py==1.5.0  # Commented out - installed separately in workflow
 supabase==2.10.0
 openai==1.55.3
 python-dotenv==1.0.1
