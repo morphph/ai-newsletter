@@ -1,16 +1,15 @@
-# AI Newsletter Automation
+# AI News App
 
-An automated AI newsletter system that scrapes AI/ML news from multiple sources, filters relevant content, generates summaries, and creates a daily newsletter.
+An automated AI news aggregation system that scrapes AI/ML news from multiple sources, filters relevant content, and generates summaries.
 
 ## Features
 
 - **Automated Web Scraping**: Uses Firecrawl to scrape content from AI news sources
 - **AI-Powered Filtering**: GPT-4o identifies AI/ML-related articles from scraped content
 - **Smart Summarization**: Generates 2-3 sentence summaries for each article
-- **Newsletter Generation**: Creates professionally formatted newsletters with top stories
-- **Database Storage**: Stores articles and newsletters in Supabase
-- **Email Distribution**: Optional email sending to subscribers
-- **Scheduled Execution**: Runs daily at 2 AM automatically
+- **Database Storage**: Stores articles in Supabase
+- **Web Interface**: Frontend app for browsing AI news
+- **API Access**: RESTful API for retrieving articles
 
 ## Prerequisites
 
@@ -18,7 +17,6 @@ An automated AI newsletter system that scrapes AI/ML news from multiple sources,
 - Supabase account and project
 - Firecrawl API key
 - OpenAI API key
-- (Optional) SMTP credentials for email sending
 
 ## Installation
 
@@ -48,53 +46,66 @@ python scripts/seed_sources.py
 - `FIRECRAWL_API_KEY`: Your Firecrawl API key
 - `OPENAI_API_KEY`: Your OpenAI API key
 
-### Optional Email Configuration
-
-- `SMTP_HOST`: SMTP server host (default: smtp.gmail.com)
-- `SMTP_PORT`: SMTP server port (default: 587)
-- `SMTP_USER`: SMTP username
-- `SMTP_PASSWORD`: SMTP password
-- `FROM_EMAIL`: Sender email address
-- `FROM_NAME`: Sender name (default: AI Newsletter)
 
 ## Usage
 
-### Run Once (Manual)
+### Start the Backend API
 ```bash
-python main.py --run-now
+cd backend
+python run.py
 ```
 
-### Run Scheduled (Daily at 2 AM)
+### Start the Frontend
 ```bash
-python main.py
+cd frontend
+npm run dev
+```
+
+### Run the News Crawler
+```bash
+cd backend
+python -m src.workers.news_crawler --once  # Run once
+python -m src.workers.news_crawler --interval 30  # Run every 30 minutes
 ```
 
 ## Workflow
 
 1. **Fetch Sources**: Retrieves active news sources from database
 2. **Scrape Homepages**: Uses Firecrawl to get markdown content from each source
-3. **Filter Articles**: GPT-4o extracts AI/ML-related articles published today
+3. **Filter Articles**: GPT-4o extracts AI/ML-related articles
 4. **Store Articles**: Saves new articles to database
 5. **Enrich Content**: Fetches full article content and generates summaries
-6. **Generate Newsletter**: Creates newsletter from top 10 articles
-7. **Send Emails**: Optionally sends newsletter to subscribers
+6. **Display Articles**: Shows articles in web interface with filters
+
+## Deployment
+
+The app is configured for free, automatic deployment:
+
+- **Frontend**: Deploy to Vercel (free)
+- **Backend**: Deploy to Render.com (free tier)
+- **Crawler**: Runs on GitHub Actions (free, every 30 minutes)
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
 
 ## Project Structure
 
 ```
+├── backend/
+│   ├── src/
+│   │   ├── api/                  # FastAPI application
+│   │   ├── services/             # Core services
+│   │   └── workers/              # Background workers
+│   └── run.py                    # Backend entry point
+├── frontend/
+│   ├── src/                      # React application
+│   └── package.json              # Frontend dependencies
 ├── src/
-│   ├── services/
-│   │   ├── supabase_client.py    # Database operations
-│   │   ├── firecrawl_service.py  # Web scraping
-│   │   └── openai_service.py     # AI filtering & summarization
-│   ├── workflows/
-│   │   └── newsletter_workflow.py # Main orchestration logic
-│   └── utils/
-│       └── email_sender.py        # Email distribution
+│   └── services/                 # Shared services
 ├── scripts/
-│   └── seed_sources.py            # Initialize news sources
-├── main.py                        # Entry point & scheduler
-├── database_schema.sql            # Supabase schema
+│   └── manage_sources.py         # Source management
+├── .github/
+│   └── workflows/                # GitHub Actions for crawler
+├── database_schema_current.sql   # Current database schema
 └── requirements.txt               # Python dependencies
 ```
 

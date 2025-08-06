@@ -45,35 +45,3 @@ class SupabaseService:
             'full_content': full_content
         }).eq('id', article_id).execute()
         return response.data[0] if response.data else None
-    
-    async def create_newsletter(self, subject: str, content: str, article_ids: List[str]) -> Dict:
-        newsletter_response = self.client.table('newsletters').insert({
-            'subject': subject,
-            'content': content
-        }).execute()
-        
-        if newsletter_response.data:
-            newsletter_id = newsletter_response.data[0]['id']
-            
-            newsletter_articles = [
-                {
-                    'newsletter_id': newsletter_id,
-                    'article_id': article_id,
-                    'position': position
-                }
-                for position, article_id in enumerate(article_ids, 1)
-            ]
-            
-            self.client.table('newsletter_articles').insert(newsletter_articles).execute()
-            
-            self.client.table('articles').update({
-                'included_in_newsletter': True
-            }).in_('id', article_ids).execute()
-            
-            return newsletter_response.data[0]
-        
-        return None
-    
-    async def get_subscribers(self) -> List[Dict]:
-        response = self.client.table('users').select('*').is_('unsubscribed_at', None).execute()
-        return response.data
