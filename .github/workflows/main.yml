@@ -1,4 +1,4 @@
- name: AI News Crawler
+name: AI News Crawler
 
   on:
     schedule:
@@ -44,3 +44,4 @@
 
       - name: Log completion
         run: echo "Crawler run completed at $(date)"
+
