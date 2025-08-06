@@ -1,4 +1,4 @@
-name: AI News Crawler
+  name: AI News Crawler
   on:
     workflow_dispatch:
     schedule:
