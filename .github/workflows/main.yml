@@ -27,10 +27,16 @@ name: AI News Crawler
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install dependencies
+       - name: Install dependencies
         run: |
           cd backend
-          pip install -r requirements.txt
+          # Install all except firecrawl-py first
+          pip install fastapi uvicorn supabase openai python-dotenv aiohttp 
+  python-dateutil beautifulsoup4 lxml pydantic pydantic-settings
+          # Try to install firecrawl-py, but continue if it fails
+          pip install firecrawl-py==1.5.0 || pip install firecrawl-py || echo 
+  "Firecrawl installation failed, continuing..."
+
 
       - name: Run crawler
         env:
