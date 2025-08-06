@@ -1,35 +1,7 @@
- name: AI News Crawler
-
-  on:
-    schedule:
-      - cron: '*/30 * * * *'
-    workflow_dispatch:
-
+name: Test
+  on: workflow_dispatch
   jobs:
-    crawl:
+    test:
       runs-on: ubuntu-latest
-
       steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          cd backend
-          pip install -r requirements.txt
-          pip install firecrawl-py || true
-
-      - name: Run crawler
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
-        run: |
-          cd backend
-          python -m src.workers.news_crawler --once
+        - run: echo "Hello World"
