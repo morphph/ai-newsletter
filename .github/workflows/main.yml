@@ -1,7 +1,7 @@
-name: AI News Crawler
+  name: AI News Crawler
 
-on:
-  schedule:
+  on:
+    schedule:
       - cron: '*/30 * * * *'
     workflow_dispatch:
 
@@ -18,11 +18,20 @@ on:
         with:
           python-version: '3.10'
 
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           cd backend
           pip install -r requirements.txt
-          pip install firecrawl-py || true
+          pip install firecrawl-py || pip install git+https://github.com/mendableai/firecrawl.git@main#subdirectory=apps/python-sdk || echo 
+  "Firecrawl installation failed, continuing..."
 
       - name: Run crawler
         env:
@@ -33,3 +42,6 @@ on:
         run: |
           cd backend
           python -m src.workers.news_crawler --once
+
+      - name: Log completion
+        run: echo "Crawler run completed at $(date)"
