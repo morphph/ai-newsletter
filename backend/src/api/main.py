@@ -23,14 +23,21 @@ app = FastAPI(
 )
 
 # Configure CORS for production
+# Allow all origins in development, or specific origins in production
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+if allowed_origins == ["*"]:
+    # If using wildcard, use it directly (not as a list)
+    cors_origins = ["*"]
+else:
+    cors_origins = allowed_origins
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
@@ -43,3 +50,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+@app.get("/api/health")
+async def api_health_check():
+    return {"status": "healthy", "api": "working"}
