@@ -1,0 +1,27 @@
+name: AI News Crawler
+on:
+  workflow_dispatch:
+  schedule:
+    # Run daily at 9 AM UTC (adjust for your timezone)
+    - cron: '0 9 * * *'
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install and run
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+        run: |
+          cd backend
+          pip install supabase openai python-dotenv aiohttp python-dateutil beautifulsoup4 lxml
+          pip install fastapi uvicorn pydantic pydantic-settings
+          pip install firecrawl-py || echo "Firecrawl failed"
+          # Use the enhanced crawler with three-stage pipeline
+          python -m src.workers.news_crawler_v2 --stage all
