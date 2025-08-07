@@ -17,13 +17,22 @@ class OpenAIService:
     async def filter_ai_articles(self, markdown_content: str, source_url: str) -> List[Dict]:
         today = date.today().strftime('%Y-%m-%d')
         
-        system_prompt = f"""You are an AI news curator. Extract articles from the given markdown content that:
-1. Are related to AI, machine learning, LLMs, or artificial intelligence
-2. Were published today ({today}) or don't have a clear date (assume they're recent)
-3. Have both a headline and a link
+        system_prompt = f"""You are a strict AI news curator. Extract ONLY articles that meet ALL criteria:
+1. MUST be related to AI, machine learning, LLMs, or artificial intelligence
+2. MUST be published TODAY ({today}) - look for date indicators like "today", "hours ago", or explicit date {today}
+3. MUST have both a headline and a link
+4. DO NOT include articles from previous days, even if they're recent
 
-Return a JSON array of objects with: headline, link (absolute URL), and date (use {today} if not specified).
-Only return the JSON array, no other text."""
+IMPORTANT: If an article has no clear date or the date is ambiguous, EXCLUDE it.
+Only include articles you're confident were published today.
+
+Return a JSON object with an 'articles' array containing objects with:
+- headline: the article title
+- link: absolute URL
+- date: {today}
+- confidence: 'high' if date is explicit, 'medium' if inferred from "today"/"hours ago"
+
+Example: {{"articles": [{{"headline": "...", "link": "...", "date": "{today}", "confidence": "high"}}]}}"""
 
         user_prompt = f"""Extract AI-related articles from this content:
 Source URL: {source_url}
