@@ -51,3 +51,14 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.get("/debug/routes")
+async def debug_routes():
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "path"):
+            routes.append({
+                "path": route.path,
+                "methods": list(route.methods) if hasattr(route, "methods") else []
+            })
+    return {"routes": routes}
+
