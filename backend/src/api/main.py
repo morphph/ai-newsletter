@@ -40,8 +40,8 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
-app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
+app.include_router(articles.router, prefix="/articles", tags=["articles"])
+app.include_router(sources.router, prefix="/sources", tags=["sources"])
 
 @app.get("/")
 async def root():
@@ -51,6 +51,3 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
-@app.get("/api/health")
-async def api_health_check():
-    return {"status": "healthy", "api": "working"}
