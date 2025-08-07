@@ -22,19 +22,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS for production
-# Allow all origins in development, or specific origins in production
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-if allowed_origins == ["*"]:
-    # If using wildcard, use it directly (not as a list)
-    cors_origins = ["*"]
-else:
-    cors_origins = allowed_origins
-
+# Configure CORS - allow all origins for now
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=False,  # Must be False when using wildcard
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
