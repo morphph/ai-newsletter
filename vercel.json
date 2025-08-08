@@ -1,14 +1,12 @@
 {
-  "buildCommand": "bash build.sh",
+  "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
+  "installCommand": "echo 'Skipping install'",
   "framework": "vite",
   "rewrites": [
     {
       "source": "/(.*)",
       "destination": "/index.html"
     }
-  ],
-  "env": {
-    "NODE_VERSION": "18"
-  }
+  ]
 }
