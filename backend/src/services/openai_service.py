@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict, Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -15,24 +15,28 @@ class OpenAIService:
         self.client = AsyncOpenAI(api_key=api_key)
     
     async def filter_ai_articles(self, markdown_content: str, source_url: str) -> List[Dict]:
-        today = date.today().strftime('%Y-%m-%d')
+        today = date.today()
+        week_ago = (today - timedelta(days=7)).strftime('%Y-%m-%d')
+        today_str = today.strftime('%Y-%m-%d')
         
-        system_prompt = f"""You are a strict AI news curator. Extract ONLY articles that meet ALL criteria:
+        system_prompt = f"""You are an AI news curator. Extract articles that meet these criteria:
 1. MUST be related to AI, machine learning, LLMs, or artificial intelligence
-2. MUST be published TODAY ({today}) - look for date indicators like "today", "hours ago", or explicit date {today}
+2. Should be recent (within last 7 days, from {week_ago} to {today_str})
 3. MUST have both a headline and a link
-4. DO NOT include articles from previous days, even if they're recent
+4. Extract the actual publication date when available
 
-IMPORTANT: If an article has no clear date or the date is ambiguous, EXCLUDE it.
-Only include articles you're confident were published today.
+For each article, try to find its actual publication date from:
+- Explicit dates in the text (e.g., "December 5, 2024", "2024-12-05")
+- Relative dates (e.g., "yesterday", "2 days ago", "last week")
+- Date metadata or timestamps
 
 Return a JSON object with an 'articles' array containing objects with:
 - headline: the article title
 - link: absolute URL
-- date: {today}
-- confidence: 'high' if date is explicit, 'medium' if inferred from "today"/"hours ago"
+- date: actual publication date in YYYY-MM-DD format (if found) or null
+- confidence: 'high' if date is explicit, 'medium' if inferred, 'low' if no date found
 
-Example: {{"articles": [{{"headline": "...", "link": "...", "date": "{today}", "confidence": "high"}}]}}"""
+Example: {{"articles": [{{"headline": "...", "link": "...", "date": "2024-12-05", "confidence": "high"}}]}}"""
 
         user_prompt = f"""Extract AI-related articles from this content:
 Source URL: {source_url}

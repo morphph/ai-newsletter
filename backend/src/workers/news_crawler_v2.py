@@ -68,11 +68,20 @@ class EnhancedNewsCrawler:
                     exists = await self.supabase.check_article_exists(article['link'])
                     
                     if not exists:
+                        # Use the actual article date if found, otherwise use null
+                        # This will be stored properly and shown as the publication date
+                        article_date = article.get('date')
+                        if article_date and article_date != 'null':
+                            published_date = article_date
+                        else:
+                            # If no date found, use today as fallback but mark as low confidence
+                            published_date = date.today().isoformat()
+                            
                         article_data = {
                             'source_id': source['id'],
                             'headline': article['headline'],
                             'url': article['link'],
-                            'published_at': article.get('date', date.today().isoformat()),
+                            'published_at': published_date,
                             'processing_stage': 'pending_enrichment',
                             'crawl_batch_id': self.batch_id,
                             'confidence': article.get('confidence', 'low')
