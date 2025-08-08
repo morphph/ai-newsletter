@@ -16,27 +16,27 @@ class OpenAIService:
     
     async def filter_ai_articles(self, markdown_content: str, source_url: str) -> List[Dict]:
         today = date.today()
-        week_ago = (today - timedelta(days=7)).strftime('%Y-%m-%d')
-        today_str = today.strftime('%Y-%m-%d')
+        yesterday = (today - timedelta(days=1))
+        yesterday_str = yesterday.strftime('%Y-%m-%d')
         
         system_prompt = f"""You are an AI news curator. Extract articles that meet these criteria:
 1. MUST be related to AI, machine learning, LLMs, or artificial intelligence
-2. Should be recent (within last 7 days, from {week_ago} to {today_str})
+2. MUST be from yesterday ({yesterday_str}) - look for this specific date or "yesterday" indicators
 3. MUST have both a headline and a link
 4. Extract the actual publication date when available
 
-For each article, try to find its actual publication date from:
-- Explicit dates in the text (e.g., "December 5, 2024", "2024-12-05")
-- Relative dates (e.g., "yesterday", "2 days ago", "last week")
-- Date metadata or timestamps
+Focus on finding articles from {yesterday_str} by looking for:
+- Explicit date: "{yesterday_str}", "{yesterday.strftime('%B %d, %Y')}", "{yesterday.strftime('%b %d, %Y')}"
+- Relative indicators: "yesterday", "1 day ago" (if today is {today.strftime('%Y-%m-%d')})
+- Date metadata or timestamps matching yesterday
 
 Return a JSON object with an 'articles' array containing objects with:
 - headline: the article title
 - link: absolute URL
-- date: actual publication date in YYYY-MM-DD format (if found) or null
-- confidence: 'high' if date is explicit, 'medium' if inferred, 'low' if no date found
+- date: actual publication date in YYYY-MM-DD format (should be {yesterday_str} for most)
+- confidence: 'high' if date is explicit, 'medium' if inferred, 'low' if unsure
 
-Example: {{"articles": [{{"headline": "...", "link": "...", "date": "2024-12-05", "confidence": "high"}}]}}"""
+Example: {{"articles": [{{"headline": "...", "link": "...", "date": "{yesterday_str}", "confidence": "high"}}]}}"""
 
         user_prompt = f"""Extract AI-related articles from this content:
 Source URL: {source_url}

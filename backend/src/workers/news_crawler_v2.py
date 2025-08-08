@@ -35,11 +35,12 @@ class EnhancedNewsCrawler:
         self.source_stats = {}
         
     async def stage1_collect_headlines(self) -> List[Dict]:
-        """Stage 1: Collect today's AI headlines from all sources"""
-        logger.info(f"=== STAGE 1: Collecting Headlines (Batch: {self.batch_id}) ===")
+        """Stage 1: Collect yesterday's AI headlines from all sources"""
+        yesterday = (date.today() - timedelta(days=1)).strftime('%Y-%m-%d')
+        logger.info(f"=== STAGE 1: Collecting Headlines from {yesterday} (Batch: {self.batch_id}) ===")
         
         sources = await self.supabase.get_active_sources()
-        logger.info(f"Processing {len(sources)} active sources")
+        logger.info(f"Processing {len(sources)} active sources for yesterday's articles")
         
         all_articles = []
         
@@ -68,14 +69,14 @@ class EnhancedNewsCrawler:
                     exists = await self.supabase.check_article_exists(article['link'])
                     
                     if not exists:
-                        # Use the actual article date if found, otherwise use null
+                        # Use the actual article date if found, otherwise use yesterday
                         # This will be stored properly and shown as the publication date
                         article_date = article.get('date')
                         if article_date and article_date != 'null':
                             published_date = article_date
                         else:
-                            # If no date found, use today as fallback but mark as low confidence
-                            published_date = date.today().isoformat()
+                            # If no date found, use yesterday as fallback (since we're fetching yesterday's news)
+                            published_date = (date.today() - timedelta(days=1)).isoformat()
                             
                         article_data = {
                             'source_id': source['id'],
