@@ -32,7 +32,7 @@ Content:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5-nano",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -78,7 +78,7 @@ Article Content:
 
         try:
             response = await self.client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5-nano",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
