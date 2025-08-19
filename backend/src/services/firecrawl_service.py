@@ -1,7 +1,7 @@
 import os
 import asyncio
 from typing import List, Dict, Optional
-from firecrawl import AsyncFirecrawlApp
+from firecrawl import AsyncFirecrawl
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,11 +11,11 @@ class FirecrawlService:
         api_key = os.getenv('FIRECRAWL_API_KEY')
         if not api_key:
             raise ValueError("FIRECRAWL_API_KEY must be set in environment variables")
-        self.app = AsyncFirecrawlApp(api_key=api_key)
+        self.app = AsyncFirecrawl(api_key=api_key)
     
     async def scrape_homepage(self, url: str) -> Dict:
         try:
-            response = await self.app.scrape_url(
+            response = await self.app.scrape(
                 url=url,
                 formats=['markdown'],
                 only_main_content=True
@@ -42,7 +42,7 @@ class FirecrawlService:
     
     async def scrape_article(self, url: str) -> Dict:
         try:
-            response = await self.app.scrape_url(
+            response = await self.app.scrape(
                 url=url,
                 formats=['markdown'],
                 only_main_content=True
