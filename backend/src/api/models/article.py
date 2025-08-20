@@ -11,6 +11,12 @@ class ArticleBase(BaseModel):
     is_ai_related: bool = False
     tags: Optional[List[str]] = []
     image_url: Optional[str] = None
+    # Twitter-specific fields
+    tweet_id: Optional[str] = None
+    author_username: Optional[str] = None
+    like_count: Optional[int] = 0
+    retweet_count: Optional[int] = 0
+    reply_count: Optional[int] = 0
 
 class ArticleCreate(ArticleBase):
     source_id: UUID
@@ -22,6 +28,10 @@ class ArticleUpdate(BaseModel):
     is_ai_related: Optional[bool] = None
     tags: Optional[List[str]] = None
     image_url: Optional[str] = None
+    # Twitter engagement updates
+    like_count: Optional[int] = None
+    retweet_count: Optional[int] = None
+    reply_count: Optional[int] = None
 
 class Article(ArticleBase):
     id: UUID
@@ -37,3 +47,4 @@ class Article(ArticleBase):
 class ArticleResponse(Article):
     source_name: Optional[str] = None
     source_category: Optional[str] = None
+    source_type: Optional[str] = None

@@ -25,7 +25,7 @@ async def get_articles(
     since_date = (datetime.now() - timedelta(days=days)).date()
     
     query = supabase.client.table('articles').select(
-        '*, sources!inner(name, category)'
+        '*, sources!inner(name, category, source_type)'
     ).gte('published_at', since_date.isoformat())
     
     if ai_related_only:
@@ -47,6 +47,7 @@ async def get_articles(
         if 'sources' in article:
             article_response.source_name = article['sources']['name']
             article_response.source_category = article['sources']['category']
+            article_response.source_type = article['sources'].get('source_type', 'website')
         articles.append(article_response)
     
     return articles
@@ -56,7 +57,7 @@ async def get_article(article_id: UUID):
     supabase = SupabaseService()
     
     response = supabase.client.table('articles').select(
-        '*, sources!inner(name, category)'
+        '*, sources!inner(name, category, source_type)'
     ).eq('id', str(article_id)).execute()
     
     if not response.data:
@@ -74,6 +75,7 @@ async def get_article(article_id: UUID):
     if 'sources' in article:
         article_response.source_name = article['sources']['name']
         article_response.source_category = article['sources']['category']
+        article_response.source_type = article['sources'].get('source_type', 'website')
     
     return article_response
 

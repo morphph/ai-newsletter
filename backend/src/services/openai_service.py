@@ -166,3 +166,79 @@ Make it informative yet conversational. The tone should be professional but appr
                 'subject': f"AI Newsletter - {today}",
                 'content': articles_text
             }
+    
+    async def check_tweet_ai_relevance(self, tweet_content: str, headline: str) -> bool:
+        """Check if a tweet is AI/ML related"""
+        system_prompt = """You are an AI content curator. Determine if the given tweet is related to:
+- Artificial Intelligence, Machine Learning, Deep Learning
+- Large Language Models (LLMs), GPT, Claude, Gemini, etc.
+- AI research, papers, breakthroughs
+- AI tools, applications, or frameworks
+- AI ethics, policy, or industry news
+- Computer vision, NLP, robotics with AI
+- AI startups, funding, or business developments
+
+Return JSON with a single field "is_ai_related" (true/false)."""
+
+        user_prompt = f"""Tweet: {tweet_content}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            
+            return result.get('is_ai_related', False)
+            
+        except Exception as e:
+            print(f"Error checking tweet AI relevance: {e}")
+            # Default to False if error
+            return False
+    
+    async def summarize_tweet(self, tweet_content: str, author: str, headline: str) -> Dict[str, str]:
+        """Summarize a tweet for the newsletter"""
+        system_prompt = """You are a professional newsletter writer. Create a 1-2 sentence summary of the given tweet that:
+1. Captures the key insight or announcement
+2. Maintains the author's voice and perspective
+3. Explains why it matters to AI practitioners
+
+Also determine if this tweet is truly AI/ML related (return true/false).
+
+Return your response as JSON with two fields: "summary" and "is_ai_related"."""
+
+        user_prompt = f"""Tweet from @{author}:
+{tweet_content}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.5,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            
+            return {
+                'summary': result.get('summary', ''),
+                'is_ai_related': result.get('is_ai_related', True)
+            }
+            
+        except Exception as e:
+            print(f"Error summarizing tweet: {e}")
+            return {
+                'summary': '',
+                'is_ai_related': False
+            }

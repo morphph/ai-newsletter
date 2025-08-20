@@ -18,6 +18,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from src.services.supabase_client import SupabaseService
 from src.services.firecrawl_service import FirecrawlService
 from src.services.openai_service import OpenAIService
+from src.services.twitter_service import TwitterService
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +32,7 @@ class EnhancedNewsCrawler:
         self.supabase = SupabaseService()
         self.firecrawl = FirecrawlService()
         self.openai = OpenAIService()
+        self.twitter = TwitterService()
         self.batch_id = str(uuid4())
         self.source_stats = {}
         
@@ -46,55 +48,27 @@ class EnhancedNewsCrawler:
         
         for source in sources:
             try:
-                logger.info(f"Scraping {source['name']}...")
+                source_type = source.get('source_type', 'website')
+                logger.info(f"Processing {source['name']} (type: {source_type})...")
                 
-                # Scrape homepage
-                homepage_result = await self.firecrawl.scrape_homepage(source['url'])
+                if source_type == 'twitter':
+                    # Handle Twitter source
+                    articles = await self._process_twitter_source(source)
+                else:
+                    # Handle website source (existing logic)
+                    articles = await self._process_website_source(source)
                 
-                if not homepage_result['success']:
-                    logger.error(f"Failed to scrape {source['name']}: {homepage_result.get('error')}")
-                    self.source_stats[source['name']] = {'status': 'failed', 'error': homepage_result.get('error')}
-                    continue
-                
-                # Filter for today's AI articles only
-                articles = await self.openai.filter_ai_articles(
-                    homepage_result['markdown'],
-                    source['url']
-                )
-                
-                # Process and save articles
+                # Save articles
                 new_articles = 0
                 for article in articles:
-                    # Enhanced deduplication - check both URL and headline
-                    exists = await self.supabase.check_article_exists(article['link'])
-                    
-                    if not exists:
-                        # Use the actual article date if found, otherwise use yesterday
-                        # This will be stored properly and shown as the publication date
-                        article_date = article.get('date')
-                        if article_date and article_date != 'null':
-                            published_date = article_date
-                        else:
-                            # If no date found, use yesterday as fallback (since we're fetching yesterday's news)
-                            published_date = (date.today() - timedelta(days=1)).isoformat()
-                            
-                        article_data = {
-                            'source_id': source['id'],
-                            'headline': article['headline'],
-                            'url': article['link'],
-                            'published_at': published_date,
-                            'processing_stage': 'pending_enrichment',
-                            'crawl_batch_id': self.batch_id,
-                            'confidence': article.get('confidence', 'low')
-                        }
-                        
-                        saved = await self.supabase.insert_article(article_data)
-                        if saved:
-                            all_articles.append(saved)
-                            new_articles += 1
+                    saved = await self.supabase.insert_article(article)
+                    if saved:
+                        all_articles.append(saved)
+                        new_articles += 1
                 
                 self.source_stats[source['name']] = {
                     'status': 'success',
+                    'type': source_type,
                     'articles_found': len(articles),
                     'new_articles': new_articles
                 }
@@ -106,6 +80,91 @@ class EnhancedNewsCrawler:
         
         logger.info(f"Stage 1 complete: {len(all_articles)} total new articles")
         return all_articles
+    
+    async def _process_twitter_source(self, source: Dict) -> List[Dict]:
+        """Process a Twitter source and return articles"""
+        username = source.get('twitter_username')
+        if not username:
+            logger.error(f"Twitter source {source['name']} missing username")
+            return []
+        
+        # Fetch yesterday's tweets
+        tweets = await self.twitter.fetch_yesterday_tweets(username)
+        
+        # Convert tweets to article format and check for AI relevance
+        articles = []
+        for tweet in tweets:
+            # Check if tweet is AI-related
+            is_ai = await self.openai.check_tweet_ai_relevance(
+                tweet['full_content'],
+                tweet['headline']
+            )
+            
+            if is_ai:
+                # Check if tweet already exists
+                exists = await self.supabase.check_article_exists(tweet['url'])
+                
+                if not exists:
+                    article_data = {
+                        'source_id': source['id'],
+                        'headline': tweet['headline'],
+                        'url': tweet['url'],
+                        'full_content': tweet['full_content'],
+                        'published_at': tweet['published_at'],
+                        'tweet_id': tweet.get('tweet_id'),
+                        'author_username': tweet.get('author_username'),
+                        'like_count': tweet.get('like_count', 0),
+                        'retweet_count': tweet.get('retweet_count', 0),
+                        'reply_count': tweet.get('reply_count', 0),
+                        'processing_stage': 'pending_summary',  # Skip enrichment for tweets
+                        'crawl_batch_id': self.batch_id,
+                        'is_ai_related': True
+                    }
+                    articles.append(article_data)
+        
+        return articles
+    
+    async def _process_website_source(self, source: Dict) -> List[Dict]:
+        """Process a website source and return articles (existing logic)"""
+        # Scrape homepage
+        homepage_result = await self.firecrawl.scrape_homepage(source['url'])
+        
+        if not homepage_result['success']:
+            logger.error(f"Failed to scrape {source['name']}: {homepage_result.get('error')}")
+            self.source_stats[source['name']] = {'status': 'failed', 'error': homepage_result.get('error')}
+            return []
+        
+        # Filter for AI articles
+        articles = await self.openai.filter_ai_articles(
+            homepage_result['markdown'],
+            source['url']
+        )
+        
+        # Process articles
+        processed_articles = []
+        for article in articles:
+            # Check if article exists
+            exists = await self.supabase.check_article_exists(article['link'])
+            
+            if not exists:
+                article_date = article.get('date')
+                if article_date and article_date != 'null':
+                    published_date = article_date
+                else:
+                    published_date = (date.today() - timedelta(days=1)).isoformat()
+                
+                article_data = {
+                    'source_id': source['id'],
+                    'headline': article['headline'],
+                    'url': article['link'],
+                    'published_at': published_date,
+                    'processing_stage': 'pending_enrichment',
+                    'crawl_batch_id': self.batch_id,
+                    'confidence': article.get('confidence', 'low')
+                }
+                processed_articles.append(article_data)
+        
+        return processed_articles
     
     async def stage2_fetch_content(self, articles: List[Dict]) -> List[Dict]:
         """Stage 2: Fetch full content for articles in parallel"""
@@ -140,6 +199,15 @@ class EnhancedNewsCrawler:
     async def _fetch_single_article(self, article: Dict) -> Optional[Dict]:
         """Fetch content for a single article"""
         try:
+            # Skip fetching for tweets as they already have full content
+            if article.get('tweet_id'):
+                # Tweet already has full content, just update processing stage
+                self.supabase.client.table('articles').update({
+                    'processing_stage': 'pending_summary'
+                }).eq('id', article['id']).execute()
+                return article
+            
+            # Fetch content for website articles
             result = await self.firecrawl.scrape_article(article['url'])
             
             if result['success'] and result['markdown']:
@@ -177,11 +245,21 @@ class EnhancedNewsCrawler:
                 if not article.get('full_content'):
                     continue
                 
-                # Generate summary
-                summary_result = await self.openai.summarize_article(
-                    article['full_content'],
-                    article['headline']
-                )
+                # Check if this is a tweet or regular article
+                is_tweet = bool(article.get('tweet_id'))
+                
+                # Generate summary (different approach for tweets)
+                if is_tweet:
+                    summary_result = await self.openai.summarize_tweet(
+                        article['full_content'],
+                        article.get('author_username', ''),
+                        article['headline']
+                    )
+                else:
+                    summary_result = await self.openai.summarize_article(
+                        article['full_content'],
+                        article['headline']
+                    )
                 
                 # Update article with summary
                 await self.supabase.update_article_summary(
