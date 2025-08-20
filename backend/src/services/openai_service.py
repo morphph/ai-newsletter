@@ -166,3 +166,21 @@ Make it informative yet conversational. The tone should be professional but appr
                 'subject': f"AI Newsletter - {today}",
                 'content': articles_text
             }
+    
+    async def generate_summary(self, prompt: str, max_tokens: int = 100) -> str:
+        """Generate a summary based on the provided prompt"""
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.5,
+                max_tokens=max_tokens
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+            return ""

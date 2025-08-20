@@ -32,9 +32,9 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-app.include_router(articles.router, prefix="/articles", tags=["articles"])
-app.include_router(sources.router, prefix="/sources", tags=["sources"])
-app.include_router(monitoring.router, prefix="/monitoring", tags=["monitoring"])
+app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
+app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
+app.include_router(monitoring.router, prefix="/api/monitoring", tags=["monitoring"])
 
 @app.get("/")
 async def root():

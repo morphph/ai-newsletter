@@ -3,10 +3,7 @@ import axios from 'axios'
 // Use environment variable for production, fallback to proxy for development
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
 
-// Debug logging
-console.log('API Base URL:', API_BASE_URL)
-console.log('Environment:', import.meta.env.MODE)
-console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
+// API configuration uses environment variable for production, proxy for development
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -23,6 +20,16 @@ export const articleService = {
   
   getArticle: async (id) => {
     const response = await api.get(`/articles/${id}`)
+    return response.data
+  },
+  
+  getArticlesByDay: async (days = 30) => {
+    const response = await api.get('/articles/by-day', { params: { days } })
+    return response.data
+  },
+  
+  getArticlesForDay: async (date) => {
+    const response = await api.get(`/articles/day/${date}`)
     return response.data
   },
 }

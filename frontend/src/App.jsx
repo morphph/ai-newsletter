@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from 'react-query'
 import Layout from './components/Layout'
 import HomePage from './pages/HomePage'
 import ArticlePage from './pages/ArticlePage'
+import DayView from './pages/DayView'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +23,7 @@ function App() {
             <Route index element={<HomePage />} />
             <Route path="article/:id" element={<ArticlePage />} />
           </Route>
+          <Route path="/day/:date" element={<DayView />} />
         </Routes>
       </Router>
     </QueryClientProvider>
