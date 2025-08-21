@@ -260,3 +260,37 @@ Return your response as JSON with two fields: "summary" and "is_ai_related"."""
                 'summary': '',
                 'is_ai_related': False
             }
+    
+    async def check_content_ai_relevance(self, content: str, headline: str) -> bool:
+        """Check if content is AI-related (generic method for both tweets and articles)"""
+        return await self.check_tweet_ai_relevance(content, headline)
+    
+    async def generate_tweet_summary(self, content: str, author: str) -> str:
+        """Generate summary for tweet content"""
+        result = await self.summarize_tweet(content, author, content[:50])
+        return result.get("summary", content[:100])
+    
+    async def extract_tags(self, content: str) -> List[str]:
+        """Extract AI-related tags from content"""
+        try:
+            prompt = f"""Extract 3-5 relevant AI/ML tags from this content:
+            {content[:500]}
+            
+            Return only the tags as a comma-separated list."""
+            
+            response = await self.client.chat.completions.create(
+                model="gpt-5-nano",
+                messages=[
+                    {"role": "system", "content": "Extract relevant AI/ML tags from content."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=50,
+                temperature=0.3
+            )
+            
+            tags_str = response.choices[0].message.content.strip()
+            tags = [tag.strip() for tag in tags_str.split(',')]
+            return tags[:5]
+        except Exception as e:
+            print(f"Error extracting tags: {e}")
+            return []

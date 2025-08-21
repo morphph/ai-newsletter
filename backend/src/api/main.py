@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
 
-from .routes import articles, sources, monitoring
+from .routes import articles, sources, monitoring, tweets, content
 from ..services.supabase_client import SupabaseService
 
 load_dotenv()
@@ -35,6 +35,8 @@ app.add_middleware(
 app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
 app.include_router(sources.router, prefix="/api/sources", tags=["sources"])
 app.include_router(monitoring.router, prefix="/api/monitoring", tags=["monitoring"])
+app.include_router(tweets.router, prefix="/api", tags=["tweets"])
+app.include_router(content.router, prefix="/api", tags=["unified-content"])
 
 @app.get("/")
 async def root():

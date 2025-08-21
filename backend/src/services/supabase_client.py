@@ -155,6 +155,22 @@ class SupabaseService:
         except Exception as e:
             print(f"Error logging source stats: {e}")
     
+    async def update_article_content(self, article_id: str, full_content: str) -> bool:
+        """Update article content (alias for update_article_full_content)"""
+        result = await self.update_article_full_content(article_id, full_content)
+        return result is not None
+    
+    async def update_article_ai_status(self, article_id: str, is_ai_related: bool) -> bool:
+        """Update article AI status"""
+        try:
+            response = self.client.table('articles').update({
+                'is_ai_related': is_ai_related
+            }).eq('id', article_id).execute()
+            return response.data is not None
+        except Exception as e:
+            print(f"Error updating article AI status: {e}")
+            return False
+    
     async def get_source_health(self, days: int = 7) -> Dict:
         """Get source health statistics for monitoring"""
         from datetime import timedelta

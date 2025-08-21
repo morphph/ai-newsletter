@@ -111,7 +111,7 @@ class TwitterService:
         params = {
             "userName": username,
             "cursor": cursor,
-            "includeReplies": include_replies
+            "includeReplies": str(include_replies).lower()  # Convert boolean to string
         }
         
         try:
@@ -172,7 +172,102 @@ class TwitterService:
         username: str
     ) -> List[Dict]:
         """
-        Process tweets into format suitable for storage as articles
+        Process tweets into format suitable for storage in tweets table
+        """
+        processed = []
+        
+        for tweet in tweets:
+            try:
+                # Parse tweet date - handle Twitter date format
+                created_at = tweet.get("createdAt", "")
+                if created_at:
+                    try:
+                        # Try ISO format first
+                        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    except ValueError:
+                        # Fall back to Twitter's date format
+                        from datetime import datetime as dt_parser
+                        dt = dt_parser.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
+                    published_at = dt.isoformat()
+                else:
+                    published_at = datetime.now().isoformat()
+                
+                # Extract tweet content
+                text = tweet.get("text", "")
+                
+                # Extract media URLs
+                media_urls = []
+                media = tweet.get("media", [])
+                for m in media:
+                    if m.get("url"):
+                        media_urls.append(m["url"])
+                
+                # Extract hashtags
+                hashtags = []
+                entities = tweet.get("entities", {})
+                for hashtag in entities.get("hashtags", []):
+                    hashtags.append(hashtag.get("text", ""))
+                
+                # Extract mentions
+                mentions = []
+                for mention in entities.get("mentions", []):
+                    mentions.append(mention.get("username", ""))
+                
+                # Extract URLs
+                urls = []
+                for url in entities.get("urls", []):
+                    urls.append(url.get("expanded_url", url.get("url", "")))
+                
+                # Build the processed tweet for tweets table
+                processed_tweet = {
+                    "tweet_id": tweet.get("id"),
+                    "author_username": username,
+                    "content": text,
+                    "published_at": published_at,
+                    "like_count": tweet.get("likeCount", 0),
+                    "retweet_count": tweet.get("retweetCount", 0),
+                    "reply_count": tweet.get("replyCount", 0),
+                    "view_count": tweet.get("viewCount", 0),
+                    "bookmark_count": tweet.get("bookmarkCount", 0),
+                    
+                    # Metadata
+                    "is_reply": bool(tweet.get("in_reply_to_status_id")),
+                    "is_retweet": text.startswith("RT @"),
+                    "is_quote_tweet": bool(tweet.get("quoted_tweet")),
+                    "has_media": len(media_urls) > 0,
+                    "media_urls": media_urls,
+                    "hashtags": hashtags,
+                    "mentions": mentions,
+                    "urls": urls,
+                    
+                    # Thread info
+                    "conversation_id": tweet.get("conversation_id"),
+                    "in_reply_to_tweet_id": tweet.get("in_reply_to_status_id"),
+                    "quoted_tweet_id": tweet.get("quoted_tweet", {}).get("id") if tweet.get("quoted_tweet") else None,
+                }
+                
+                # Add quoted tweet info if exists
+                if tweet.get("quoted_tweet"):
+                    quoted = tweet["quoted_tweet"]
+                    quoted_author = quoted.get("author", {})
+                    processed_tweet["quoted_tweet_content"] = quoted.get("text", "")[:500]
+                    processed_tweet["quoted_tweet_author"] = quoted_author.get("userName", "Unknown")
+                
+                processed.append(processed_tweet)
+                
+            except Exception as e:
+                logger.error(f"Error processing tweet {tweet.get('id')}: {str(e)}")
+                continue
+        
+        return processed
+    
+    def _process_tweets_for_articles(
+        self, 
+        tweets: List[Dict], 
+        username: str
+    ) -> List[Dict]:
+        """
+        Process tweets into format suitable for storage as articles (backward compatibility)
         """
         processed = []
         
@@ -181,19 +276,20 @@ class TwitterService:
                 # Parse tweet date
                 created_at = tweet.get("createdAt", "")
                 if created_at:
-                    dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    try:
+                        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    except ValueError:
+                        from datetime import datetime as dt_parser
+                        dt = dt_parser.strptime(created_at, "%a %b %d %H:%M:%S %z %Y")
                     published_date = dt.date().isoformat()
                 else:
                     published_date = date.today().isoformat()
                 
-                # Extract tweet content
                 text = tweet.get("text", "")
-                
-                # Create headline from first 100 chars of tweet
                 headline = text[:100] + "..." if len(text) > 100 else text
                 headline = headline.replace("\n", " ").strip()
                 
-                # Build the processed tweet
+                # Format for articles table (backward compatibility)
                 processed_tweet = {
                     "tweet_id": tweet.get("id"),
                     "author_username": username,
@@ -204,21 +300,13 @@ class TwitterService:
                     "like_count": tweet.get("likeCount", 0),
                     "retweet_count": tweet.get("retweetCount", 0),
                     "reply_count": tweet.get("replyCount", 0),
-                    "view_count": tweet.get("viewCount", 0),
                     "source_type": "twitter"
                 }
-                
-                # Add quoted tweet info if exists
-                if tweet.get("quoted_tweet"):
-                    quoted = tweet["quoted_tweet"]
-                    quoted_author = quoted.get("author", {})
-                    quoted_text = quoted.get("text", "")[:200]
-                    processed_tweet["quoted_content"] = f"Quote from @{quoted_author.get('userName', 'Unknown')}: {quoted_text}"
                 
                 processed.append(processed_tweet)
                 
             except Exception as e:
-                logger.error(f"Error processing tweet {tweet.get('id')}: {str(e)}")
+                logger.error(f"Error processing tweet for articles: {str(e)}")
                 continue
         
         return processed
