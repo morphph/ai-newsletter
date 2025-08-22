@@ -315,7 +315,7 @@ class TwitterService:
         self, 
         username: str, 
         target_date: date,
-        limit: int = 100
+        limit: int = 200
     ) -> List[Dict]:
         """
         Fetch tweets from a specific date
@@ -323,22 +323,33 @@ class TwitterService:
         Args:
             username: Twitter username (without @)
             target_date: Date to filter tweets
-            limit: Maximum number of tweets to check
+            limit: Maximum number of tweets to check (increased default to 200)
             
         Returns:
             List of tweets from the target date
         """
-        # Fetch more tweets than needed to ensure we get all from target date
+        # Fetch more tweets to ensure we get all from target date
         all_tweets = await self.fetch_user_tweets(username, limit=limit)
         
-        # Filter for target date
+        # Filter for target date - compare date portions only
         target_date_str = target_date.isoformat()
-        filtered_tweets = [
-            tweet for tweet in all_tweets 
-            if tweet.get("published_at") == target_date_str
-        ]
+        filtered_tweets = []
         
-        logger.info(f"Found {len(filtered_tweets)} tweets from @{username} on {target_date_str}")
+        for tweet in all_tweets:
+            published_at = tweet.get("published_at", "")
+            if published_at:
+                try:
+                    # Parse the ISO timestamp and extract just the date
+                    tweet_datetime = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                    tweet_date = tweet_datetime.date()
+                    
+                    # Compare dates
+                    if tweet_date == target_date:
+                        filtered_tweets.append(tweet)
+                except Exception as e:
+                    logger.warning(f"Could not parse date for tweet: {published_at}, error: {e}")
+        
+        logger.info(f"Found {len(filtered_tweets)}/{len(all_tweets)} tweets from @{username} on {target_date_str}")
         
         return filtered_tweets
     

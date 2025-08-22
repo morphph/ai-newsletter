@@ -20,6 +20,7 @@ from src.services.twitter_supabase_service import TwitterSupabaseService
 from src.services.firecrawl_service import FirecrawlService
 from src.services.openai_service import OpenAIService
 from src.services.twitter_service import TwitterService
+from src.utils.content_filters import ContentFilter
 
 # Configure logging
 logging.basicConfig(
@@ -37,6 +38,19 @@ class EnhancedNewsCrawlerV3:
         self.twitter = TwitterService()
         self.batch_id = str(uuid4())
         self.source_stats = {}
+        self.pipeline_stats = {
+            'tweets_collected': 0,
+            'tweets_date_matched': 0,
+            'articles_checked': 0,
+            'articles_pre_filtered': 0,
+            'articles_scraped': 0,
+            'articles_date_matched': 0,
+            'articles_collected': 0,
+            'ai_tweets': 0,
+            'ai_articles': 0,
+            'summaries_generated': 0,
+            'api_calls_saved': 0
+        }
         
     async def run_full_pipeline(self, target_date: date = None):
         """Run the complete pipeline for a specific date"""
@@ -108,42 +122,71 @@ class EnhancedNewsCrawlerV3:
         return collected_content
     
     async def _process_twitter_source(self, source: Dict, target_date: date) -> List[Dict]:
-        """Process a Twitter source and return tweets for storage"""
+        """Process Twitter source: Fetch yesterday's tweets -> GPT filter -> Store only AI tweets"""
         username = source.get('twitter_username')
         if not username:
             logger.error(f"Twitter source {source['name']} missing username")
             return []
         
-        # Fetch tweets for the target date
+        # Validate target_date is not too far in the past or future
+        days_diff = (date.today() - target_date).days
+        if days_diff > 30:
+            logger.warning(f"Target date {target_date} is {days_diff} days old - may not find tweets")
+        elif days_diff < 0:
+            logger.error(f"Target date {target_date} is in the future!")
+            return []
+        
+        # Step 1: Fetch tweets for the target date
         raw_tweets = await self.twitter.fetch_tweets_for_date(username, target_date)
         
-        # Process tweets for storage in tweets table
+        # Update statistics
+        self.pipeline_stats['tweets_date_matched'] += len(raw_tweets)
+        
+        if not raw_tweets:
+            logger.info(f"  No tweets from {target_date} for @{username}")
+            return []
+        
+        logger.info(f"  Found {len(raw_tweets)} tweets from {target_date}")
+        
+        # Step 2: Batch evaluate with GPT for AI relevance
+        ai_tweets = await self.openai.evaluate_tweets_batch(raw_tweets, target_date)
+        
+        logger.info(f"  GPT identified {len(ai_tweets)} AI-related tweets")
+        
+        # Step 3: Store only AI-related tweets
         processed_tweets = []
-        for tweet_data in raw_tweets:
-            # Add source_id to tweet data
+        for tweet_data in ai_tweets:
+            # Add metadata
             tweet_data['source_id'] = source['id']
+            tweet_data['is_ai_related'] = True  # Mark as AI-related immediately
             
             # Store tweet in tweets table
             saved_tweet = await self.twitter_supabase.insert_tweet(tweet_data)
             if saved_tweet:
                 processed_tweets.append(saved_tweet)
+                self.pipeline_stats['ai_tweets'] += 1
         
-        logger.info(f"  ✓ {source['name']}: {len(processed_tweets)} tweets stored")
+        self.pipeline_stats['tweets_collected'] += len(processed_tweets)
+        logger.info(f"  ✓ {source['name']}: {len(processed_tweets)} AI tweets stored (filtered from {len(raw_tweets)})")
+        
         return processed_tweets
     
     async def _process_website_source(self, source: Dict, target_date: date) -> List[Dict]:
-        """Process a website source and return articles"""
+        """Process website with hybrid approach: Python date filter -> GPT AI filter -> Firecrawl"""
         articles = []
+        articles_date_filtered = 0
+        articles_ai_filtered = 0
+        articles_scraped = 0
         
         try:
-            # Scrape homepage
+            # Step 1: Scrape homepage
             homepage_result = await self.firecrawl.scrape_homepage(source['url'])
             
             if not homepage_result['success']:
                 logger.error(f"Failed to scrape {source['name']}: {homepage_result.get('error')}")
                 return []
             
-            # Extract article links
+            # Step 2: Extract article links
             article_links = await self.firecrawl.extract_article_links(
                 homepage_result.get('markdown', ''),
                 source['url']
@@ -151,30 +194,92 @@ class EnhancedNewsCrawlerV3:
             
             logger.info(f"  Found {len(article_links)} links from {source['name']}")
             
-            # Filter and save articles for the target date
-            for link in article_links[:20]:  # Limit to 20 articles per source
+            # Step 3: Python filters for yesterday's articles only
+            date_filtered = ContentFilter.filter_articles_by_date(
+                article_links,
+                target_date=target_date
+            )
+            
+            articles_date_filtered = len(date_filtered)
+            logger.info(f"  Date filter: {articles_date_filtered} articles from {target_date}")
+            
+            if not date_filtered:
+                logger.info(f"  No articles from {target_date} found")
+                return []
+            
+            # Step 4: Send date-filtered articles to GPT for AI relevance check
+            ai_articles = await self.openai.evaluate_articles_batch(
+                date_filtered,
+                target_date=target_date
+            )
+            
+            articles_ai_filtered = len(ai_articles)
+            logger.info(f"  GPT identified {articles_ai_filtered} AI-related articles")
+            
+            # Step 5: Scrape only GPT-approved AI articles
+            for article in ai_articles[:10]:  # Limit to 10 articles per source
                 try:
                     # Check if article already exists
-                    exists = await self.supabase.check_article_exists(link['url'])
-                    if not exists:
-                        article_data = {
-                            'source_id': source['id'],
-                            'headline': link['title'],
-                            'url': link['url'],
-                            'published_at': target_date.isoformat(),
-                            'processing_stage': 'pending_enrichment',
-                            'crawl_batch_id': self.batch_id
-                        }
-                        
-                        # Save to articles table
-                        saved = await self.supabase.insert_article(article_data)
-                        if saved:
-                            articles.append(saved)
+                    exists = await self.supabase.check_article_exists(article['url'])
+                    if exists:
+                        continue
+                    
+                    # Scrape the GPT-approved article
+                    articles_scraped += 1
+                    article_result = await self.firecrawl.scrape_article(article['url'])
+                    
+                    if not article_result['success']:
+                        logger.debug(f"  Failed to scrape article {article['url']}")
+                        continue
+                    
+                    # Verify published date from metadata (double-check)
+                    published_date_str = article_result.get('published_date', '')
+                    if published_date_str:
+                        try:
+                            from dateutil import parser
+                            parsed_datetime = parser.parse(published_date_str)
+                            article_date = parsed_datetime.date()
+                            
+                            # Log if date doesn't match expectation
+                            if article_date != target_date:
+                                logger.warning(f"  Article date mismatch: expected {target_date}, got {article_date}")
+                        except Exception as e:
+                            logger.debug(f"  Could not verify date for {article['url']}: {e}")
+                    
+                    # Store the article (already verified as AI-related by GPT)
+                    full_content = article_result.get('markdown', '')[:10000]
+                    article_data = {
+                        'source_id': source['id'],
+                        'headline': article_result.get('title') or article['title'],
+                        'url': article['url'],
+                        'published_at': target_date.isoformat(),
+                        'full_content': full_content,
+                        'is_ai_related': True,  # GPT already confirmed this
+                        'processing_stage': 'pending_summary',
+                        'crawl_batch_id': self.batch_id
+                    }
+                    
+                    # Save to articles table
+                    saved = await self.supabase.insert_article(article_data)
+                    if saved:
+                        articles.append(saved)
+                        self.pipeline_stats['ai_articles'] += 1
+                    
                             
                 except Exception as e:
-                    logger.error(f"Error processing article {link['url']}: {str(e)}")
+                    logger.error(f"Error processing article {article['url']}: {str(e)}")
             
-            logger.info(f"  ✓ {source['name']}: {len(articles)} new articles stored")
+            # Update pipeline statistics
+            self.pipeline_stats['articles_checked'] += len(article_links)  # Total found
+            self.pipeline_stats['articles_pre_filtered'] += articles_date_filtered  # Date filtered
+            self.pipeline_stats['articles_date_matched'] += articles_date_filtered
+            self.pipeline_stats['articles_scraped'] += articles_scraped
+            self.pipeline_stats['articles_collected'] += len(articles)
+            # Calculate API calls saved (compared to scraping all articles)
+            self.pipeline_stats['api_calls_saved'] += max(0, len(article_links) - articles_scraped)
+            
+            logger.info(f"  ✓ {source['name']}: {len(articles)} AI articles stored")
+            logger.info(f"    Flow: {len(article_links)} found → {articles_date_filtered} date-matched → {articles_ai_filtered} AI-filtered → {articles_scraped} scraped")
             
         except Exception as e:
             logger.error(f"Error processing website {source['name']}: {str(e)}")
@@ -190,10 +295,16 @@ class EnhancedNewsCrawlerV3:
             'articles': []
         }
         
-        # Process tweets for AI relevance
-        logger.info(f"Checking AI relevance for {len(content['tweets'])} tweets...")
+        # Process tweets for AI relevance (most should already be marked from Stage 1)
+        logger.info(f"Verifying AI relevance for {len(content['tweets'])} tweets...")
         for tweet in content['tweets']:
             try:
+                # Skip if already marked as AI-related (from new optimized flow)
+                if tweet.get('is_ai_related'):
+                    ai_content['tweets'].append(tweet)
+                    continue
+                
+                # For tweets not pre-processed (legacy flow or missed tweets)
                 is_ai = await self.openai.check_content_ai_relevance(
                     tweet.get('content', ''),
                     f"@{tweet['author_username']}"
@@ -206,15 +317,21 @@ class EnhancedNewsCrawlerV3:
                         {'is_ai_related': True}
                     )
                     ai_content['tweets'].append(tweet)
+                    self.pipeline_stats['ai_tweets'] += 1
                     
             except Exception as e:
                 logger.error(f"Error checking AI relevance for tweet {tweet['tweet_id']}: {str(e)}")
         
-        # Process articles for AI relevance
-        logger.info(f"Checking AI relevance for {len(content['articles'])} articles...")
+        # Process articles for AI relevance (most should already be marked)
+        logger.info(f"Verifying AI relevance for {len(content['articles'])} articles...")
         for article in content['articles']:
             try:
-                # Fetch full content if not already present
+                # Skip if already marked as AI-related (from optimized flow)
+                if article.get('is_ai_related'):
+                    ai_content['articles'].append(article)
+                    continue
+                
+                # For articles not pre-processed (shouldn't happen with new flow)
                 if not article.get('full_content'):
                     full_content_result = await self.firecrawl.scrape_article(article['url'])
                     if full_content_result['success']:
@@ -234,6 +351,7 @@ class EnhancedNewsCrawlerV3:
                     # Update article as AI-related
                     await self.supabase.update_article_ai_status(article['id'], True)
                     ai_content['articles'].append(article)
+                    self.pipeline_stats['ai_articles'] += 1
                     
             except Exception as e:
                 logger.error(f"Error processing article {article['url']}: {str(e)}")
@@ -280,6 +398,7 @@ class EnhancedNewsCrawlerV3:
                         )
                         tweet['ai_summary'] = summary
                         summarized_content['tweets'].append(tweet)
+                        self.pipeline_stats['summaries_generated'] += 1
                         
                 except Exception as e:
                     logger.error(f"Error generating summary for @{author}: {str(e)}")
@@ -298,6 +417,7 @@ class EnhancedNewsCrawlerV3:
                     await self.supabase.update_article_summary(article['id'], summary)
                     article['summary'] = summary
                     summarized_content['articles'].append(article)
+                    self.pipeline_stats['summaries_generated'] += 1
                     
                 except Exception as e:
                     logger.error(f"Error generating summary for {article['url']}: {str(e)}")
@@ -307,23 +427,55 @@ class EnhancedNewsCrawlerV3:
     
     def _print_pipeline_summary(self, content: Dict):
         """Print summary of the pipeline execution"""
-        print("\n" + "="*60)
+        print("\n" + "="*70)
         print("PIPELINE EXECUTION SUMMARY")
-        print("="*60)
+        print("="*70)
         
         print(f"\nBatch ID: {self.batch_id}")
-        print(f"\nContent Processed:")
-        print(f"  - AI Tweets: {len(content.get('tweets', []))}")
-        print(f"  - AI Articles: {len(content.get('articles', []))}")
         
-        print(f"\nSource Statistics:")
+        print(f"\n📊 FILTERING STATISTICS:")
+        print(f"  Twitter:")
+        print(f"    - Tweets matching target date: {self.pipeline_stats['tweets_date_matched']}")
+        print(f"    - Tweets successfully stored: {self.pipeline_stats['tweets_collected']}")
+        print(f"  Articles:")
+        print(f"    - Total articles found on homepages: {self.pipeline_stats['articles_checked']}")
+        print(f"    - Pre-filtered (likely relevant): {self.pipeline_stats['articles_pre_filtered']}")
+        print(f"    - Actually scraped (API calls): {self.pipeline_stats['articles_scraped']}")
+        print(f"    - Articles matching target date: {self.pipeline_stats['articles_date_matched']}")
+        print(f"    - AI articles stored: {self.pipeline_stats['articles_collected']}")
+        
+        print(f"\n🤖 AI FILTERING STATISTICS:")
+        print(f"  - AI-related tweets: {self.pipeline_stats['ai_tweets']}/{self.pipeline_stats['tweets_collected']}")
+        print(f"  - AI-related articles: {self.pipeline_stats['ai_articles']}/{self.pipeline_stats['articles_collected']}")
+        print(f"  - Summaries generated: {self.pipeline_stats['summaries_generated']}")
+        
+        print(f"\n💰 EFFICIENCY METRICS:")
+        print(f"  - Firecrawl API calls saved: {self.pipeline_stats['api_calls_saved']}")
+        if self.pipeline_stats['articles_checked'] > 0:
+            efficiency = (self.pipeline_stats['api_calls_saved'] / self.pipeline_stats['articles_checked']) * 100
+            print(f"  - API call reduction: {efficiency:.1f}%")
+        
+        # Calculate filtering efficiency
+        if self.pipeline_stats['tweets_collected'] > 0:
+            tweet_ai_rate = (self.pipeline_stats['ai_tweets'] / self.pipeline_stats['tweets_collected']) * 100
+            print(f"  - Tweet AI relevance rate: {tweet_ai_rate:.1f}%")
+        
+        if self.pipeline_stats['articles_collected'] > 0:
+            article_ai_rate = (self.pipeline_stats['ai_articles'] / self.pipeline_stats['articles_collected']) * 100
+            print(f"  - Article AI relevance rate: {article_ai_rate:.1f}%")
+        
+        if self.pipeline_stats['articles_checked'] > 0:
+            date_match_rate = (self.pipeline_stats['articles_date_matched'] / self.pipeline_stats['articles_checked']) * 100
+            print(f"  - Article date match rate: {date_match_rate:.1f}%")
+        
+        print(f"\n📋 SOURCE BREAKDOWN:")
         for source, stats in self.source_stats.items():
             status_icon = "✓" if stats['status'] == 'success' else "✗"
             print(f"  {status_icon} {source}: {stats.get('items_collected', 0)} items")
             if stats['status'] == 'error':
                 print(f"    Error: {stats['error']}")
         
-        print("\n" + "="*60)
+        print("\n" + "="*70)
 
 async def main():
     """Run the crawler for yesterday's content"""

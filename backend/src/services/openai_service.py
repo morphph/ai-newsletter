@@ -185,6 +185,158 @@ Make it informative yet conversational. The tone should be professional but appr
             print(f"Error generating summary: {e}")
             return ""
     
+    async def evaluate_articles_batch(self, articles: List[Dict], target_date: date = None) -> List[Dict]:
+        """
+        Evaluate multiple articles for AI relevance in a single GPT call
+        
+        Args:
+            articles: List of dicts with 'title', 'url', and optionally 'snippet'
+            target_date: Date to verify articles are from (optional)
+            
+        Returns:
+            List of articles that are AI-related
+        """
+        if not articles:
+            return []
+        
+        # Prepare articles for GPT evaluation
+        articles_text = "\n\n".join([
+            f"Title: {art.get('title', 'No title')}\n"
+            f"URL: {art.get('url', '')}\n"
+            f"Snippet: {art.get('snippet', '')[:200] if art.get('snippet') else 'No snippet'}"
+            for i, art in enumerate(articles[:30], 1)  # Limit to 30 articles
+        ])
+        
+        date_context = f" from {target_date.isoformat()}" if target_date else ""
+        
+        system_prompt = f"""You are an AI content curator. Analyze the following articles{date_context} and identify which ones are about:
+- Artificial Intelligence, Machine Learning, Deep Learning
+- Large Language Models (GPT, Claude, Gemini, LLaMA, etc.)
+- AI research, papers, breakthroughs, or technical developments
+- AI tools, frameworks, or applications
+- AI companies, funding, acquisitions, or business news
+- AI ethics, safety, regulation, or policy
+- Computer vision, NLP, robotics with AI focus
+- Generative AI, AGI, or AI agents
+
+Return a JSON object with an 'ai_articles' array containing the URLs of articles that are AI-related.
+Be selective - only include articles with clear AI/ML focus, not just tech news that mentions AI in passing.
+
+Format: {{"ai_articles": ["url1", "url2", ...]}}"""
+
+        user_prompt = f"""Identify which of these articles are about AI/ML topics:
+
+{articles_text}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Use faster model for screening
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            ai_urls = set(result.get('ai_articles', []))
+            
+            # Return only articles that GPT identified as AI-related
+            ai_articles = [
+                article for article in articles 
+                if article.get('url') in ai_urls
+            ]
+            
+            return ai_articles
+            
+        except Exception as e:
+            print(f"Error evaluating articles batch: {e}")
+            # Fallback: return articles with obvious AI keywords
+            ai_keywords = ['ai', 'gpt', 'llm', 'machine learning', 'neural', 'openai', 'anthropic']
+            return [
+                art for art in articles
+                if any(keyword in (art.get('title', '') + art.get('snippet', '')).lower() 
+                       for keyword in ai_keywords)
+            ]
+    
+    async def evaluate_tweets_batch(self, tweets: List[Dict], target_date: date = None) -> List[Dict]:
+        """
+        Evaluate multiple tweets for AI relevance in a single GPT call
+        
+        Args:
+            tweets: List of tweet dicts with 'content', 'author_username', etc.
+            target_date: Date tweets are from (for context)
+            
+        Returns:
+            List of tweets that are AI-related
+        """
+        if not tweets:
+            return []
+        
+        # Prepare tweets for GPT evaluation
+        tweets_text = "\n\n".join([
+            f"@{tweet.get('author_username', 'unknown')}: {tweet.get('content', '')[:280]}"
+            for tweet in tweets[:50]  # Limit to 50 tweets
+        ])
+        
+        date_context = f" from {target_date.isoformat()}" if target_date else ""
+        
+        system_prompt = f"""You are an AI content curator analyzing tweets{date_context}. Identify which tweets are about:
+- Artificial Intelligence, Machine Learning, Deep Learning, Neural Networks
+- Large Language Models (GPT, Claude, Gemini, LLaMA, Mistral, etc.)
+- AI research, papers, benchmarks, or technical developments
+- AI tools, APIs, frameworks (LangChain, HuggingFace, etc.)
+- AI companies, funding, product launches, or updates
+- AI ethics, safety, alignment, regulation, or policy
+- Computer vision, NLP, robotics with AI focus
+- Generative AI, AGI, AI agents, or automation
+
+Return a JSON object with a 'tweet_indices' array containing the 0-based indices of AI-related tweets.
+Be selective - only include tweets with clear AI/ML focus, not general tech tweets.
+
+Format: {{"tweet_indices": [0, 2, 5, ...]}}"""
+
+        user_prompt = f"""Identify which of these tweets are about AI/ML topics:
+
+{tweets_text}"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Fast model for screening
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            ai_indices = set(result.get('tweet_indices', []))
+            
+            # Return only tweets that GPT identified as AI-related
+            ai_tweets = [
+                tweet for i, tweet in enumerate(tweets[:50])
+                if i in ai_indices
+            ]
+            
+            return ai_tweets
+            
+        except Exception as e:
+            print(f"Error evaluating tweets batch: {e}")
+            # Fallback: return tweets with obvious AI keywords
+            ai_keywords = ['ai', 'gpt', 'llm', 'claude', 'gemini', 'machine learning', 'neural']
+            return [
+                tweet for tweet in tweets
+                if any(keyword in tweet.get('content', '').lower() 
+                       for keyword in ai_keywords)
+            ]
+    
     async def check_tweet_ai_relevance(self, tweet_content: str, headline: str) -> bool:
         """Check if a tweet is AI/ML related"""
         system_prompt = """You are an AI content curator. Determine if the given tweet is related to:
