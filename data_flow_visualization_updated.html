@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News Pipeline - Updated Data Flow</title>
+    <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+        .mermaid {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 30px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .legend-color {
+            width: 30px;
+            height: 20px;
+            border-radius: 5px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI News Pipeline - Data Flow</h1>
+        <div class="subtitle">Updated: Showing Different Processing Paths for Articles vs Tweets</div>
+        
+        <div class="note">
+            <strong>⚠️ Key Difference:</strong> Articles and Tweets follow different processing pipelines:
+            <ul>
+                <li><strong>Articles:</strong> Homepage Scrape → Date Filter → GPT AI Filter → Full Content Scrape → Store → Summarize</li>
+                <li><strong>Tweets:</strong> Fetch by Date → GPT AI Filter (batch) → Store → Summarize</li>
+            </ul>
+        </div>
+
+        <div class="mermaid">
+            %%{init: {'theme':'base', 'themeVariables': { 'primaryColor':'#667eea', 'primaryTextColor':'#fff', 'primaryBorderColor':'#7c3aed', 'lineColor':'#5b21b6', 'secondaryColor':'#f59e0b', 'tertiaryColor':'#10b981', 'background':'#faf5ff', 'mainBkg':'#667eea', 'secondBkg':'#f59e0b', 'tertiaryBkg':'#10b981'}}}%%
+            graph TB
+                %% Data Sources
+                subgraph Sources["📊 DATA SOURCES"]
+                    DB[(Supabase DB)]
+                    WS[Website Sources]
+                    TS[Twitter Sources]
+                    DB --> WS
+                    DB --> TS
+                end
+
+                %% Article Processing Path
+                subgraph ArticlePath["📰 ARTICLE PROCESSING"]
+                    WS --> HS[Homepage Scrape<br/>via Firecrawl]
+                    HS --> EL[Extract Links]
+                    EL --> DF[Date Filter<br/>Python: Yesterday Only]
+                    DF --> GAF[GPT AI Filter<br/>Batch Evaluation]
+                    GAF --> FS[Full Scrape<br/>AI Articles Only]
+                    FS --> SA[Store Articles<br/>articles table]
+                end
+
+                %% Tweet Processing Path
+                subgraph TweetPath["🐦 TWEET PROCESSING"]
+                    TS --> FT[Fetch Tweets<br/>by Date via API]
+                    FT --> GTF[GPT AI Filter<br/>Batch Evaluation]
+                    GTF --> ST[Store Tweets<br/>tweets table]
+                end
+
+                %% AI Processing Stage
+                subgraph AIStage["🤖 AI ENRICHMENT"]
+                    SA --> GAS[Generate Article<br/>Summaries]
+                    ST --> GTS[Generate Tweet<br/>Summaries]
+                    GAS --> ET[Extract Tags]
+                    GTS --> ET
+                end
+
+                %% Storage
+                subgraph Storage["💾 FINAL STORAGE"]
+                    AT[(Articles Table<br/>with summaries)]
+                    TT[(Tweets Table<br/>with summaries)]
+                    ET --> AT
+                    ET --> TT
+                end
+
+                %% API Layer
+                subgraph API["🔌 API ENDPOINTS"]
+                    AT --> AE[/api/articles]
+                    TT --> TE[/api/tweets]
+                    AT --> CE[/api/content<br/>Unified View]
+                    TT --> CE
+                end
+
+                %% Frontend
+                subgraph Frontend["🖥️ FRONTEND"]
+                    AE --> UI[React UI]
+                    TE --> UI
+                    CE --> UI
+                end
+
+                %% Styling
+                classDef sourceClass fill:#e0e7ff,stroke:#6366f1,stroke-width:2px
+                classDef articleClass fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
+                classDef tweetClass fill:#dbeafe,stroke:#3b82f6,stroke-width:2px
+                classDef aiClass fill:#d1fae5,stroke:#10b981,stroke-width:2px
+                classDef storageClass fill:#fce7f3,stroke:#ec4899,stroke-width:2px
+                classDef apiClass fill:#e9d5ff,stroke:#a855f7,stroke-width:2px
+
+                class DB,WS,TS sourceClass
+                class HS,EL,DF,GAF,FS,SA articleClass
+                class FT,GTF,ST tweetClass
+                class GAS,GTS,ET aiClass
+                class AT,TT storageClass
+                class AE,TE,CE,UI apiClass
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #e0e7ff; border: 2px solid #6366f1;"></div>
+                <span>Data Sources</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #fef3c7; border: 2px solid #f59e0b;"></div>
+                <span>Article Processing</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #dbeafe; border: 2px solid #3b82f6;"></div>
+                <span>Tweet Processing</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #d1fae5; border: 2px solid #10b981;"></div>
+                <span>AI Processing</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #fce7f3; border: 2px solid #ec4899;"></div>
+                <span>Storage</span>
+            </div>
+        </div>
+
+        <h2 style="text-align: center; margin-top: 40px;">🔄 Processing Pipeline Details</h2>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px;">
+            <div style="background: #fef3c7; padding: 20px; border-radius: 10px;">
+                <h3>📰 Article Pipeline</h3>
+                <ol>
+                    <li><strong>Homepage Scrape:</strong> Fetch homepage HTML via Firecrawl</li>
+                    <li><strong>Extract Links:</strong> Parse all article URLs from homepage</li>
+                    <li><strong>Date Filter:</strong> Python filters for yesterday's articles only</li>
+                    <li><strong>GPT AI Filter:</strong> Batch evaluate titles/snippets for AI relevance</li>
+                    <li><strong>Selective Scrape:</strong> Only scrape full content of AI articles</li>
+                    <li><strong>Store:</strong> Save to articles table with AI flag</li>
+                    <li><strong>Summarize:</strong> Generate summaries for stored articles</li>
+                </ol>
+                <p style="background: white; padding: 10px; border-radius: 5px; margin-top: 15px;">
+                    <strong>Efficiency:</strong> Reduces Firecrawl API calls by ~80% by only scraping AI-relevant articles
+                </p>
+            </div>
+            
+            <div style="background: #dbeafe; padding: 20px; border-radius: 10px;">
+                <h3>🐦 Tweet Pipeline</h3>
+                <ol>
+                    <li><strong>Fetch by Date:</strong> Twitter API query for yesterday's tweets</li>
+                    <li><strong>GPT Batch Filter:</strong> Send all tweets to GPT for AI evaluation</li>
+                    <li><strong>Store AI Tweets:</strong> Only store tweets identified as AI-related</li>
+                    <li><strong>Batch Summarize:</strong> Group by author for context</li>
+                    <li><strong>Extract Tags:</strong> Identify key AI topics mentioned</li>
+                </ol>
+                <p style="background: white; padding: 10px; border-radius: 5px; margin-top: 15px;">
+                    <strong>Optimization:</strong> Batch processing reduces GPT calls, only stores relevant tweets
+                </p>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value">3</div>
+                <div class="stat-label">Processing Stages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">2</div>
+                <div class="stat-label">Content Types</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">80%</div>
+                <div class="stat-label">API Calls Saved</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">24hr</div>
+                <div class="stat-label">Update Cycle</div>
+            </div>
+        </div>
+
+        <div style="margin-top: 40px; padding: 20px; background: #f3f4f6; border-radius: 10px;">
+            <h3>🔑 Key Optimizations</h3>
+            <ul>
+                <li><strong>Different Filters:</strong> Articles use date + AI filters, Tweets use date-based API query + AI filter</li>
+                <li><strong>Batch Processing:</strong> Both pipelines use batch GPT evaluation to reduce API calls</li>
+                <li><strong>Selective Scraping:</strong> Articles are only fully scraped if AI-relevant</li>
+                <li><strong>Pre-filtering:</strong> Date filtering happens before expensive operations</li>
+                <li><strong>Parallel Processing:</strong> Articles and tweets are processed concurrently</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'base',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+</body>
+</html>
