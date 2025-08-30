@@ -21,5 +21,6 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-          # Run the v3 crawler
+          # Add the backend directory to Python path and run crawler
+          export PYTHONPATH="${PYTHONPATH}:$(pwd)"
           python -m src.workers.news_crawler_v3 --once
