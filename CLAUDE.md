@@ -4,118 +4,119 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AI News aggregation system that collects AI/ML news from websites and Twitter, filters relevant content using GPT-4, and provides a web interface for browsing. The system uses a three-tier architecture with React frontend, FastAPI backend, and Supabase database.
+AI News Aggregator - An automated system that collects, filters, and summarizes AI/ML news from multiple sources including websites and Twitter/X.
 
-## Common Development Commands
-
-### Backend (Python/FastAPI)
-```bash
-# Start backend API server
-cd backend
-python run.py
-
-# Run news crawler manually
-cd backend
-python -m src.workers.news_crawler_v3 --once  # Run once
-python -m src.workers.news_crawler_v3 --interval 30  # Run every 30 minutes
-
-# Install backend dependencies
-pip install -r backend/requirements.txt
-```
-
-### Frontend (React/Vite)
-```bash
-# Start frontend dev server
-cd frontend
-npm run dev
-
-# Build frontend for production
-cd frontend
-npm run build
-
-# Run frontend linting
-cd frontend
-npm run lint
-```
-
-### Testing & Validation
-```bash
-# No test framework configured yet - check with user before adding tests
-# Frontend uses ESLint for linting: npm run lint
-```
-
-## Architecture & Key Components
+## Architecture
 
 ### Data Flow
-1. **Content Collection**: `backend/src/workers/news_crawler_v3.py` orchestrates the entire pipeline
-   - Fetches sources from database (websites + Twitter accounts)
-   - Scrapes websites using Firecrawl API
-   - Collects tweets via Twitter API
-   
-2. **Content Processing**: 
-   - Pre-filtering: `backend/src/utils/content_filters.py` applies keyword/pattern matching
-   - AI filtering: `backend/src/services/openai_service.py` uses GPT-4 to identify AI/ML content
-   - Summaries generated for relevant content
+1. **Sources**: Website URLs and Twitter handles stored in `sources` table
+2. **Collection**: 
+   - Website articles scraped via Firecrawl API → stored in `articles` table
+   - Tweets fetched via Twitter API → stored in `tweets` table
+3. **Processing**: GPT-4o filters AI-related content and generates summaries
+4. **Access**: Unified content view combines both tables for backward compatibility
 
-3. **Storage**: Supabase database with separated tables
-   - `sources`: All content sources (websites and Twitter accounts)
-   - `articles`: Website articles
-   - `tweets`: Twitter/X posts
-   - Unified through `source_id` foreign key
+### Key Services
+- **Supabase**: Database (PostgreSQL)
+- **Firecrawl**: Web scraping API
+- **OpenAI**: Content filtering and summarization
+- **Twitter API**: Tweet collection
 
-### API Structure
-- **Main app**: `backend/src/api/main.py` - FastAPI application setup
-- **Routes**: `backend/src/api/routes/`
-  - `articles.py`: Article CRUD operations
-  - `tweets.py`: Tweet operations
-  - `content.py`: Unified content endpoint
-  - `sources.py`: Source management
-  - `monitoring.py`: System health checks
+## Commands
 
-### Service Layer (`backend/src/services/`)
-- `supabase_client.py`: Database operations for articles
-- `twitter_supabase_service.py`: Database operations for tweets
-- `firecrawl_service.py`: Web scraping via Firecrawl API
-- `openai_service.py`: GPT-4 integration for filtering/summarization
-- `twitter_service.py`: Twitter API integration
+### Backend Development
+```bash
+cd backend
+python run.py                                    # Start FastAPI server (port 8000)
+python -m src.workers.news_crawler_v3 --once    # Run crawler once
+python -m src.workers.news_crawler_v3 --interval 30  # Run every 30 minutes
+```
 
-### Frontend Structure
-- React + Vite setup with Tailwind CSS
-- State management via Zustand
-- API calls through Axios
-- React Query for data fetching
+### Frontend Development
+```bash
+cd frontend
+npm install                # Install dependencies
+npm run dev               # Start dev server (Vite)
+npm run build            # Build for production
+npm run lint             # Run ESLint
+```
 
-## Environment Setup
-
-Required environment variables (copy `.env.example` to `.env`):
-- `SUPABASE_URL`: Supabase project URL
-- `SUPABASE_KEY`: Supabase anon key  
-- `FIRECRAWL_API_KEY`: For web scraping
-- `OPENAI_API_KEY`: For AI filtering/summarization
-- `TWITTER_BEARER_TOKEN`: (Optional) For Twitter API access
+### Source Management
+```bash
+python scripts/manage_sources.py                # Manage website sources
+python scripts/manage_twitter_sources.py        # Manage Twitter sources
+python backend/list_sources.py                  # List all sources with stats
+```
 
 ## Database Schema
 
-Key tables and relationships:
-- **sources**: Central source registry with `source_type` field ('website' or 'twitter')
-- **articles**: Website content with full_content, summaries, AI relevance flags
-- **tweets**: Twitter posts with engagement metrics
-- Both content tables link to sources via `source_id`
+### Core Tables
+- `sources`: All content sources (websites and Twitter accounts)
+  - `source_type`: 'website' or 'twitter'
+  - `twitter_username`: For Twitter sources only
+  
+- `articles`: Website articles
+  - Links to `sources` via `source_id`
+  - `processing_stage`: Pipeline tracking
+  
+- `tweets`: Twitter content
+  - Links to `sources` via `source_id`
+  - Engagement metrics included
 
-Schema files:
-- `database_schema.json`: Current schema structure
-- `database_schema_documentation.md`: Detailed documentation
+- `unified_content`: View combining articles and tweets
 
-## Deployment Configuration
+## API Structure
 
-- **Frontend**: Vercel deployment via `vercel.json`
-- **Backend**: Render.com deployment via `backend/render.yaml`
-- **Crawler**: GitHub Actions scheduled job (`.github/workflows/crawler.yml`)
+Backend API (FastAPI) at `/api`:
+- `/articles/*` - Article endpoints
+- `/tweets/*` - Tweet endpoints  
+- `/content/unified` - Unified content access
+- `/sources/*` - Source management
+- `/monitoring/*` - System monitoring
 
-## Important Notes
+## Environment Variables
 
-- CORS is configured to allow all origins in development
-- The crawler runs as `news_crawler_v3.py` (latest version)
-- Twitter integration requires bearer token for API v2
-- Pre-filtering happens before expensive AI calls to reduce costs
-- Processing stages tracked for debugging failed enrichments
+Required in `.env`:
+```
+SUPABASE_URL=
+SUPABASE_KEY=
+OPENAI_API_KEY=
+FIRECRAWL_API_KEY=
+```
+
+Frontend needs:
+```
+VITE_API_URL=http://localhost:8000/api  # Or production URL
+```
+
+## Deployment
+
+- **Frontend**: Vercel (automatic from main branch)
+- **Backend**: Render.com (configured in render.yaml)
+- **Crawler**: GitHub Actions (runs daily at 9 AM UTC)
+
+## Key Implementation Details
+
+### Content Filtering
+The system uses a hybrid approach:
+1. Pre-filtering with keywords (ContentFilter class)
+2. AI validation with GPT-4o for accuracy
+3. Processing stages tracked in database
+
+### Twitter Integration
+- Separate `tweets` table for Twitter-specific fields
+- `TwitterService` handles API interactions
+- `TwitterSupabaseService` manages database operations
+
+### Error Handling
+- Failed sources don't block other processing
+- Retry logic with exponential backoff
+- Detailed logging throughout pipeline
+
+## Testing Approach
+
+No formal test framework is configured. To test:
+1. Run crawler with `--once` flag for single execution
+2. Check database tables for new content
+3. Monitor API endpoints via `/api/monitoring/status`
+4. View logs for detailed processing information

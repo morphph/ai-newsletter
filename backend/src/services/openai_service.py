@@ -96,7 +96,6 @@ Article Content:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.5,
                 response_format={"type": "json_object"}
             )
             
@@ -146,7 +145,7 @@ Make it informative yet conversational. The tone should be professional but appr
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
-                max_tokens=2000
+                max_completion_tokens=2000
             )
             
             content = response.choices[0].message.content
@@ -175,8 +174,7 @@ Make it informative yet conversational. The tone should be professional but appr
                 messages=[
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.5,
-                max_tokens=max_tokens
+                max_completion_tokens=max_tokens
             )
             
             return response.choices[0].message.content.strip()
@@ -236,7 +234,7 @@ Format: {{"ai_articles": ["url1", "url2", ...]}}"""
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=1000,
+                max_completion_tokens=1000,
                 response_format={"type": "json_object"}
             )
             
@@ -311,7 +309,7 @@ Format: {{"tweet_indices": [0, 2, 5, ...]}}"""
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=500,
+                max_completion_tokens=500,
                 response_format={"type": "json_object"}
             )
             
@@ -394,7 +392,6 @@ Return your response as JSON with two fields: "summary" and "is_ai_related"."""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.5,
                 response_format={"type": "json_object"}
             )
             
@@ -436,7 +433,7 @@ Return your response as JSON with two fields: "summary" and "is_ai_related"."""
                     {"role": "system", "content": "Extract relevant AI/ML tags from content."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=50,
+                max_completion_tokens=50,
                 temperature=0.3
             )
             

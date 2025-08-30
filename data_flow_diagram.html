@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News Application Data Flow</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .diagram-container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .mermaid {
+            text-align: center;
+        }
+        .legend {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .legend h2 {
+            color: #555;
+            font-size: 18px;
+            margin-bottom: 15px;
+        }
+        .legend-item {
+            display: inline-block;
+            margin: 5px 15px;
+            font-size: 14px;
+        }
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI News Application - Data Flow Architecture</h1>
+    
+    <div class="diagram-container">
+        <div class="mermaid">
+graph TB
+    %% Data Sources
+    subgraph Sources["🌐 Data Sources"]
+        W[("🔗 Websites<br/>AI/ML News Sites")]
+        T[("𝕏 Twitter/X<br/>AI Influencers")]
+    end
+
+    %% Collection Layer
+    subgraph Collection["📥 Collection Layer"]
+        NC["🤖 News Crawler v3<br/>(news_crawler_v3.py)<br/>Orchestrator"]
+        FC["🔥 Firecrawl API<br/>(firecrawl_service.py)<br/>Web Scraper"]
+        TA["🐦 Twitter API v2<br/>(twitter_service.py)<br/>Tweet Collector"]
+    end
+
+    %% Processing Layer
+    subgraph Processing["⚙️ Processing Layer"]
+        PF["🔍 Pre-Filter<br/>(content_filters.py)<br/>Keyword Matching"]
+        AI["🧠 GPT-4 Filter<br/>(openai_service.py)<br/>AI Relevance Check"]
+        SUM["📝 Summarizer<br/>(openai_service.py)<br/>Content Summary"]
+    end
+
+    %% Storage Layer
+    subgraph Storage["💾 Storage Layer"]
+        DB[("🗄️ Supabase Database")]
+        subgraph Tables["Database Tables"]
+            SRC["📋 sources<br/>source_type: website/twitter"]
+            ART["📰 articles<br/>Website Content"]
+            TWT["💬 tweets<br/>Twitter Posts"]
+        end
+    end
+
+    %% API Layer
+    subgraph API["🔌 FastAPI Backend"]
+        MAIN["🚀 main.py<br/>API Server"]
+        subgraph Routes["API Routes"]
+            R1["📖 /articles"]
+            R2["🐦 /tweets"]
+            R3["📊 /content"]
+            R4["📍 /sources"]
+            R5["❤️ /health"]
+        end
+    end
+
+    %% Frontend
+    subgraph Frontend["🖥️ React Frontend"]
+        UI["⚛️ React + Vite<br/>Tailwind CSS<br/>Zustand + React Query"]
+        COMP["📱 Components<br/>Article Cards<br/>Tweet Display<br/>Filters"]
+    end
+
+    %% Scheduler
+    SCHED["⏰ Scheduler<br/>GitHub Actions<br/>or Manual Run"]
+
+    %% Data Flow Connections
+    SCHED -->|"Triggers"| NC
+    W --> FC
+    T --> TA
+    NC --> FC
+    NC --> TA
+    FC -->|"Raw HTML"| PF
+    TA -->|"Raw Tweets"| PF
+    PF -->|"Filtered Content"| AI
+    AI -->|"Relevant Only"| SUM
+    SUM -->|"With Summary"| DB
+    
+    %% Database Relations
+    DB --> SRC
+    DB --> ART
+    DB --> TWT
+    SRC -->|"source_id FK"| ART
+    SRC -->|"source_id FK"| TWT
+    
+    %% API Connections
+    DB <--> MAIN
+    MAIN --> R1
+    MAIN --> R2
+    MAIN --> R3
+    MAIN --> R4
+    MAIN --> R5
+    
+    %% Frontend Connection
+    Routes <-->|"HTTP/REST"| UI
+    UI --> COMP
+
+    %% Styling
+    classDef sourceStyle fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef collectionStyle fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef processingStyle fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef storageStyle fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    classDef apiStyle fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+    classDef frontendStyle fill:#e3f2fd,stroke:#0d47a1,stroke-width:2px
+    classDef schedulerStyle fill:#fffde7,stroke:#f57f17,stroke-width:2px
+
+    class W,T sourceStyle
+    class NC,FC,TA collectionStyle
+    class PF,AI,SUM processingStyle
+    class DB,SRC,ART,TWT storageStyle
+    class MAIN,R1,R2,R3,R4,R5 apiStyle
+    class UI,COMP frontendStyle
+    class SCHED schedulerStyle
+        </div>
+    </div>
+
+    <div class="legend">
+        <h2>System Components & Data Flow</h2>
+        <div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #e1f5fe; border: 2px solid #01579b;"></span>
+                <strong>Data Sources:</strong> External content providers
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #f3e5f5; border: 2px solid #4a148c;"></span>
+                <strong>Collection:</strong> Content fetching services
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #fff3e0; border: 2px solid #e65100;"></span>
+                <strong>Processing:</strong> Filtering & enrichment
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #e8f5e9; border: 2px solid #1b5e20;"></span>
+                <strong>Storage:</strong> Database layer
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #fce4ec; border: 2px solid #880e4f;"></span>
+                <strong>API:</strong> Backend services
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #e3f2fd; border: 2px solid #0d47a1;"></span>
+                <strong>Frontend:</strong> User interface
+            </div>
+            <div class="legend-item">
+                <span class="legend-color" style="background: #fffde7; border: 2px solid #f57f17;"></span>
+                <strong>Scheduler:</strong> Automation trigger
+            </div>
+        </div>
+        
+        <h2 style="margin-top: 25px;">Processing Pipeline</h2>
+        <ol style="font-size: 14px; line-height: 1.8;">
+            <li><strong>Scheduling:</strong> GitHub Actions or manual trigger initiates the crawler</li>
+            <li><strong>Collection:</strong> News Crawler v3 orchestrates parallel fetching from websites (via Firecrawl) and Twitter</li>
+            <li><strong>Pre-filtering:</strong> Apply keyword/pattern matching to reduce processing costs</li>
+            <li><strong>AI Filtering:</strong> GPT-4 evaluates content for AI/ML relevance</li>
+            <li><strong>Summarization:</strong> Generate concise summaries for relevant content</li>
+            <li><strong>Storage:</strong> Save to Supabase with proper source relationships</li>
+            <li><strong>API Service:</strong> FastAPI exposes endpoints for frontend consumption</li>
+            <li><strong>Presentation:</strong> React frontend displays filtered, summarized content</li>
+        </ol>
+
+        <h2 style="margin-top: 25px;">Key Features</h2>
+        <ul style="font-size: 14px; line-height: 1.8;">
+            <li>✅ Cost-optimized with pre-filtering before AI calls</li>
+            <li>✅ Parallel processing of multiple sources</li>
+            <li>✅ Separated content tables (articles vs tweets) with unified source tracking</li>
+            <li>✅ RESTful API with health monitoring</li>
+            <li>✅ Modern React frontend with state management</li>
+            <li>✅ Automated scheduling via GitHub Actions</li>
+        </ul>
+    </div>
+
+    <script>
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+</body>
+</html>
