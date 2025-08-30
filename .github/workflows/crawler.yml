@@ -20,8 +20,6 @@ jobs:
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
         run: |
           cd backend
-          pip install supabase openai python-dotenv aiohttp python-dateutil beautifulsoup4 lxml
-          pip install fastapi uvicorn pydantic pydantic-settings
-          pip install firecrawl-py || echo "Firecrawl failed"
-          # Use the enhanced crawler with three-stage pipeline
-          python -m src.workers.news_crawler_v2 --stage all
+          pip install -r requirements.txt
+          # Run the v3 crawler
+          python -m src.workers.news_crawler_v3 --once
