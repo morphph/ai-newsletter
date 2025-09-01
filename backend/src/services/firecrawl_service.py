@@ -18,7 +18,8 @@ class FirecrawlService:
             response = await self.app.scrape(
                 url=url,
                 formats=['markdown'],
-                only_main_content=True
+                only_main_content=True,
+                max_age=172800000  # 48 hours in milliseconds - avoid cached content
             )
             
             # Handle the response object directly
@@ -45,7 +46,8 @@ class FirecrawlService:
             response = await self.app.scrape(
                 url=url,
                 formats=['markdown'],
-                only_main_content=True
+                only_main_content=True,
+                max_age=172800000  # 48 hours in milliseconds - avoid cached content
             )
             
             # Handle the response object directly
@@ -79,11 +81,32 @@ class FirecrawlService:
         """Extract article links from markdown content"""
         import re
         from urllib.parse import urljoin, urlparse
+        from datetime import datetime
         
         links = []
-        # Extract markdown links [text](url)
-        link_pattern = r'\[([^\]]+)\]\(([^\)]+)\)'
-        matches = re.findall(link_pattern, markdown_content)
+        
+        # Method 1: Look for Anthropic-style news articles with dates
+        # Pattern: **Title**\\n\\nDate](url)
+        news_pattern = r'\*\*([^*]+)\*\*\\+\\+([^]]+)\]\(([^\)]+)\)'
+        news_matches = re.findall(news_pattern, markdown_content)
+        
+        # Convert news matches to standard format
+        matches = []
+        for title, date_text, url in news_matches:
+            full_title = f"{title.strip()} - {date_text.strip()}"
+            matches.append((full_title, url))
+        
+        # Method 2: Extract regular markdown links [text](url)
+        # This regex handles nested brackets better
+        link_pattern = r'\[([^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*)\]\(([^\)]+)\)'
+        regular_matches = re.findall(link_pattern, markdown_content, re.DOTALL)
+        
+        # Add regular matches (avoid duplicates)
+        seen_urls = set(url for _, url in matches)
+        for text, url in regular_matches:
+            if url not in seen_urls and text and url:
+                matches.append((text, url))
+                seen_urls.add(url)
         
         # Skip these file extensions and patterns
         skip_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.ico', '.css', '.js', '.pdf']
@@ -122,9 +145,26 @@ class FirecrawlService:
             if is_same_domain or has_article_keywords:
                 # Additional filter: URL should have some path (not just domain)
                 if parsed.path and len(parsed.path) > 1:
+                    # Try to extract date from title
+                    date_str = None
+                    # Common date patterns in article titles
+                    date_patterns = [
+                        r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4}',
+                        r'\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}',
+                        r'\d{4}-\d{2}-\d{2}',
+                        r'\d{1,2}/\d{1,2}/\d{4}'
+                    ]
+                    
+                    for pattern in date_patterns:
+                        date_match = re.search(pattern, text, re.IGNORECASE)
+                        if date_match:
+                            date_str = date_match.group(0)
+                            break
+                    
                     links.append({
                         'title': text.strip(),
-                        'url': absolute_url
+                        'url': absolute_url,
+                        'date_str': date_str  # Store extracted date string
                     })
         
         # Remove duplicates
@@ -135,4 +175,29 @@ class FirecrawlService:
                 seen_urls.add(link['url'])
                 unique_links.append(link)
         
-        return unique_links[:10]  # Limit to 10 quality links
+        # Sort by date if available (most recent first)
+        def parse_date_for_sorting(link):
+            """Helper to parse date string for sorting"""
+            date_str = link.get('date_str')
+            if not date_str:
+                return datetime.min  # Put articles without dates at the end
+            
+            try:
+                # Try different date formats
+                for fmt in ['%b %d, %Y', '%B %d, %Y', '%d %b %Y', '%d %B %Y', '%Y-%m-%d', '%m/%d/%Y']:
+                    try:
+                        return datetime.strptime(date_str.replace(',', ''), fmt)
+                    except:
+                        continue
+                return datetime.min
+            except:
+                return datetime.min
+        
+        # Sort with most recent first
+        unique_links.sort(key=parse_date_for_sorting, reverse=True)
+        
+        # Remove the date_str field as it's no longer needed
+        for link in unique_links:
+            link.pop('date_str', None)
+        
+        return unique_links[:30]  # Return more links to ensure we get recent articles

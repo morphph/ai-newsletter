@@ -260,6 +260,141 @@ Format: {{"ai_articles": ["url1", "url2", ...]}}"""
                        for keyword in ai_keywords)
             ]
     
+    async def evaluate_articles_date_and_ai(self, articles: List[Dict], target_date: date) -> List[Dict]:
+        """
+        Evaluate articles for BOTH date relevance AND AI relevance in a single GPT call.
+        This replaces the two-step Python date filter + AI filter with a single GPT evaluation.
+        
+        Args:
+            articles: List of dicts with 'title', 'url', and optionally 'snippet'
+            target_date: The specific date to filter for (usually yesterday)
+            
+        Returns:
+            List of articles that are BOTH from target_date AND AI-related
+        """
+        if not articles:
+            return []
+        
+        # Prepare all articles for GPT evaluation (no pre-filtering!)
+        articles_text = "\n\n".join([
+            f"Article {i}:\n"
+            f"Title: {art.get('title', 'No title')}\n"
+            f"URL: {art.get('url', '')}\n"
+            f"Snippet: {art.get('snippet', '')[:300] if art.get('snippet') else 'No snippet'}"
+            for i, art in enumerate(articles[:50], 1)  # Increased limit to evaluate more articles
+        ])
+        
+        # Format dates for GPT to understand
+        target_date_str = target_date.strftime('%Y-%m-%d')
+        target_date_readable = target_date.strftime('%B %d, %Y')
+        today = date.today()
+        today_str = today.strftime('%Y-%m-%d')
+        
+        # Calculate relative date context
+        days_ago = (today - target_date).days
+        relative_context = ""
+        if days_ago == 1:
+            relative_context = "yesterday"
+        elif days_ago == 0:
+            relative_context = "today"
+        else:
+            relative_context = f"{days_ago} days ago"
+        
+        system_prompt = f"""You are an AI news curator with expertise in identifying article dates and AI relevance.
+        
+Your task is to identify articles that meet BOTH criteria:
+1. Published on {target_date_str} ({target_date_readable}, which is {relative_context} relative to {today_str})
+2. Related to AI/ML topics
+
+For date identification, look for:
+- Explicit dates in URLs (e.g., /2024/08/30/, /2024-08-30/)
+- Date mentions in titles or snippets
+- Relative date indicators (e.g., "yesterday", "today", "1 day ago" relative to {today_str})
+- Publication dates in metadata or text
+- Be flexible: articles published on {target_date_str} might show various date formats
+
+For AI relevance, look for content about:
+- Artificial Intelligence, Machine Learning, Deep Learning, Neural Networks
+- Large Language Models (GPT, Claude, Gemini, LLaMA, Mistral, etc.)
+- AI research, papers, benchmarks, breakthroughs
+- AI tools, APIs, frameworks (LangChain, HuggingFace, etc.)
+- AI companies, funding, acquisitions, product launches
+- AI ethics, safety, alignment, regulation, policy
+- Computer vision, NLP, robotics with AI focus
+- Generative AI, AGI, AI agents, automation
+
+Return a JSON object with an 'articles' array containing objects for articles that meet BOTH criteria:
+{{"articles": [{{"index": 1, "url": "...", "confidence": "high|medium|low", "date_found": "url|title|snippet|inferred", "reason": "brief explanation"}}]}}
+
+Be thorough but selective - only include articles clearly from {target_date_str} AND clearly about AI/ML."""
+
+        user_prompt = f"""Analyze these articles and identify which ones are BOTH from {target_date_str} AND about AI/ML:
+
+{articles_text}
+
+Remember: Today is {today_str}, so {target_date_str} is {relative_context}."""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Using faster model for efficiency
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_completion_tokens=2000,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            
+            # Extract the filtered articles
+            filtered_results = result.get('articles', [])
+            
+            # Map back to original articles
+            ai_and_date_articles = []
+            for item in filtered_results:
+                index = item.get('index', 0) - 1  # Convert to 0-based index
+                if 0 <= index < len(articles):
+                    article = articles[index].copy()
+                    # Add metadata from GPT's analysis
+                    article['gpt_confidence'] = item.get('confidence', 'unknown')
+                    article['date_source'] = item.get('date_found', 'unknown')
+                    article['gpt_reason'] = item.get('reason', '')
+                    ai_and_date_articles.append(article)
+            
+            print(f"GPT evaluated {len(articles)} articles, found {len(ai_and_date_articles)} matching both date ({target_date_str}) and AI criteria")
+            
+            return ai_and_date_articles
+            
+        except Exception as e:
+            print(f"Error in evaluate_articles_date_and_ai: {e}")
+            # Fallback to simple keyword matching if GPT fails
+            ai_keywords = ['ai', 'artificial intelligence', 'gpt', 'llm', 'machine learning', 
+                          'deep learning', 'neural', 'openai', 'anthropic', 'claude', 'gemini']
+            
+            fallback_articles = []
+            for art in articles:
+                # Check for AI keywords
+                text = (art.get('title', '') + ' ' + art.get('snippet', '')).lower()
+                has_ai = any(keyword in text for keyword in ai_keywords)
+                
+                # Check for date in URL
+                url = art.get('url', '')
+                date_patterns = [
+                    target_date.strftime('/%Y/%m/%d/'),
+                    target_date.strftime('/%Y-%m-%d/'),
+                    target_date.strftime('/%Y%m%d/')
+                ]
+                has_date = any(pattern in url for pattern in date_patterns)
+                
+                if has_ai and has_date:
+                    fallback_articles.append(art)
+            
+            print(f"Fallback: Found {len(fallback_articles)} articles with AI keywords and date in URL")
+            return fallback_articles
+    
     async def evaluate_tweets_batch(self, tweets: List[Dict], target_date: date = None) -> List[Dict]:
         """
         Evaluate multiple tweets for AI relevance in a single GPT call

@@ -172,10 +172,10 @@ class EnhancedNewsCrawlerV3:
         return processed_tweets
     
     async def _process_website_source(self, source: Dict, target_date: date) -> List[Dict]:
-        """Process website with hybrid approach: Python date filter -> GPT AI filter -> Firecrawl"""
+        """Process website with new flow: Firecrawl homepage -> GPT combined filter -> Firecrawl articles"""
         articles = []
-        articles_date_filtered = 0
-        articles_ai_filtered = 0
+        articles_total = 0
+        articles_gpt_filtered = 0
         articles_scraped = 0
         
         try:
@@ -186,42 +186,40 @@ class EnhancedNewsCrawlerV3:
                 logger.error(f"Failed to scrape {source['name']}: {homepage_result.get('error')}")
                 return []
             
-            # Step 2: Extract article links
+            # Step 2: Extract ALL article links (no filtering yet!)
             article_links = await self.firecrawl.extract_article_links(
                 homepage_result.get('markdown', ''),
                 source['url']
             )
             
-            logger.info(f"  Found {len(article_links)} links from {source['name']}")
+            articles_total = len(article_links)
+            logger.info(f"  Found {articles_total} total links from {source['name']}")
             
-            # Step 3: Python filters for yesterday's articles only
-            date_filtered = ContentFilter.filter_articles_by_date(
+            if not article_links:
+                logger.info(f"  No articles found on {source['name']} homepage")
+                return []
+            
+            # Step 3: Send ALL articles to GPT for combined date + AI filtering
+            # GPT will identify articles that are BOTH from target_date AND AI-related
+            gpt_filtered_articles = await self.openai.evaluate_articles_date_and_ai(
                 article_links,
                 target_date=target_date
             )
             
-            articles_date_filtered = len(date_filtered)
-            logger.info(f"  Date filter: {articles_date_filtered} articles from {target_date}")
+            articles_gpt_filtered = len(gpt_filtered_articles)
+            logger.info(f"  GPT identified {articles_gpt_filtered} articles from {target_date} that are AI-related")
             
-            if not date_filtered:
-                logger.info(f"  No articles from {target_date} found")
+            if not gpt_filtered_articles:
+                logger.info(f"  No AI articles from {target_date} found on {source['name']}")
                 return []
             
-            # Step 4: Send date-filtered articles to GPT for AI relevance check
-            ai_articles = await self.openai.evaluate_articles_batch(
-                date_filtered,
-                target_date=target_date
-            )
-            
-            articles_ai_filtered = len(ai_articles)
-            logger.info(f"  GPT identified {articles_ai_filtered} AI-related articles")
-            
-            # Step 5: Scrape only GPT-approved AI articles
-            for article in ai_articles[:10]:  # Limit to 10 articles per source
+            # Step 4: Scrape only GPT-approved articles (both date AND AI matched)
+            for article in gpt_filtered_articles[:10]:  # Limit to 10 articles per source
                 try:
                     # Check if article already exists
                     exists = await self.supabase.check_article_exists(article['url'])
                     if exists:
+                        logger.debug(f"  Article already exists: {article['url']}")
                         continue
                     
                     # Scrape the GPT-approved article
@@ -232,29 +230,19 @@ class EnhancedNewsCrawlerV3:
                         logger.debug(f"  Failed to scrape article {article['url']}")
                         continue
                     
-                    # Verify published date from metadata (double-check)
-                    published_date_str = article_result.get('published_date', '')
-                    if published_date_str:
-                        try:
-                            from dateutil import parser
-                            parsed_datetime = parser.parse(published_date_str)
-                            article_date = parsed_datetime.date()
-                            
-                            # Log if date doesn't match expectation
-                            if article_date != target_date:
-                                logger.warning(f"  Article date mismatch: expected {target_date}, got {article_date}")
-                        except Exception as e:
-                            logger.debug(f"  Could not verify date for {article['url']}: {e}")
+                    # Log GPT's confidence level for debugging
+                    if article.get('gpt_confidence'):
+                        logger.debug(f"  Article confidence: {article['gpt_confidence']} - {article.get('gpt_reason', '')}")
                     
-                    # Store the article (already verified as AI-related by GPT)
+                    # Store the article (GPT already verified both date AND AI relevance)
                     full_content = article_result.get('markdown', '')[:10000]
                     article_data = {
                         'source_id': source['id'],
-                        'headline': article_result.get('title') or article['title'],
+                        'headline': article_result.get('title') or article.get('title', 'Untitled'),
                         'url': article['url'],
                         'published_at': target_date.isoformat(),
                         'full_content': full_content,
-                        'is_ai_related': True,  # GPT already confirmed this
+                        'is_ai_related': True,  # GPT confirmed this
                         'processing_stage': 'pending_summary',
                         'crawl_batch_id': self.batch_id
                     }
@@ -264,22 +252,23 @@ class EnhancedNewsCrawlerV3:
                     if saved:
                         articles.append(saved)
                         self.pipeline_stats['ai_articles'] += 1
+                        logger.debug(f"  ✓ Saved article: {article['url'][:80]}...")
                     
                             
                 except Exception as e:
                     logger.error(f"Error processing article {article['url']}: {str(e)}")
             
-            # Update pipeline statistics
-            self.pipeline_stats['articles_checked'] += len(article_links)  # Total found
-            self.pipeline_stats['articles_pre_filtered'] += articles_date_filtered  # Date filtered
-            self.pipeline_stats['articles_date_matched'] += articles_date_filtered
-            self.pipeline_stats['articles_scraped'] += articles_scraped
-            self.pipeline_stats['articles_collected'] += len(articles)
-            # Calculate API calls saved (compared to scraping all articles)
-            self.pipeline_stats['api_calls_saved'] += max(0, len(article_links) - articles_scraped)
+            # Update pipeline statistics with new flow metrics
+            self.pipeline_stats['articles_checked'] += articles_total  # Total found on homepage
+            self.pipeline_stats['articles_date_matched'] += articles_gpt_filtered  # GPT found matching date
+            self.pipeline_stats['articles_pre_filtered'] += articles_gpt_filtered  # GPT filtered (date + AI)
+            self.pipeline_stats['articles_scraped'] += articles_scraped  # Actually scraped
+            self.pipeline_stats['articles_collected'] += len(articles)  # Successfully saved
+            # Calculate efficiency - we only scrape what GPT approves
+            self.pipeline_stats['api_calls_saved'] += max(0, articles_total - articles_scraped)
             
             logger.info(f"  ✓ {source['name']}: {len(articles)} AI articles stored")
-            logger.info(f"    Flow: {len(article_links)} found → {articles_date_filtered} date-matched → {articles_ai_filtered} AI-filtered → {articles_scraped} scraped")
+            logger.info(f"    New flow: {articles_total} total → {articles_gpt_filtered} GPT-filtered (date+AI) → {articles_scraped} scraped → {len(articles)} saved")
             
         except Exception as e:
             logger.error(f"Error processing website {source['name']}: {str(e)}")
@@ -413,8 +402,8 @@ class EnhancedNewsCrawlerV3:
                         article.get('full_content', article.get('headline', ''))
                     )
                     
-                    # Update article with summary
-                    await self.supabase.update_article_summary(article['id'], summary)
+                    # Update article with summary (already confirmed as AI-related)
+                    await self.supabase.update_article_summary(article['id'], summary, is_ai_related=True)
                     article['summary'] = summary
                     summarized_content['articles'].append(article)
                     self.pipeline_stats['summaries_generated'] += 1
@@ -478,14 +467,41 @@ class EnhancedNewsCrawlerV3:
         print("\n" + "="*70)
 
 async def main():
-    """Run the crawler for yesterday's content"""
+    """Run the crawler with optional date parameter"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='News Crawler v3')
+    parser.add_argument(
+        '--date',
+        type=str,
+        help='Date to crawl in YYYY-MM-DD format (default: yesterday)'
+    )
+    parser.add_argument(
+        '--once',
+        action='store_true',
+        help='Run once and exit (for GitHub Actions)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine target date
+    if args.date:
+        try:
+            target_date = datetime.strptime(args.date, '%Y-%m-%d').date()
+            print(f"Processing specified date: {target_date}")
+        except ValueError:
+            print(f"Error: Invalid date format '{args.date}'. Use YYYY-MM-DD")
+            sys.exit(1)
+    else:
+        target_date = date.today() - timedelta(days=1)
+        print(f"Processing default date (yesterday): {target_date}")
+    
     crawler = EnhancedNewsCrawlerV3()
     
     try:
-        yesterday = date.today() - timedelta(days=1)
-        results = await crawler.run_full_pipeline(yesterday)
+        results = await crawler.run_full_pipeline(target_date)
         
-        print(f"\n✅ Crawler completed successfully")
+        print(f"\n✅ Crawler completed successfully for {target_date}")
         print(f"   - {len(results.get('tweets', []))} AI tweets")
         print(f"   - {len(results.get('articles', []))} AI articles")
         
@@ -493,6 +509,7 @@ async def main():
         logger.error(f"Crawler failed: {str(e)}")
         import traceback
         traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main())
