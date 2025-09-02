@@ -395,6 +395,135 @@ Remember: Today is {today_str}, so {target_date_str} is {relative_context}."""
             print(f"Fallback: Found {len(fallback_articles)} articles with AI keywords and date in URL")
             return fallback_articles
     
+    async def extract_and_filter_articles(self, markdown_content: str, base_url: str, target_date: date) -> List[Dict]:
+        """
+        Extract article links from homepage markdown and filter for BOTH date AND AI relevance.
+        This combines link extraction and filtering in a single GPT call for efficiency.
+        
+        Args:
+            markdown_content: The full homepage markdown from Firecrawl
+            base_url: The base URL of the website for converting relative URLs
+            target_date: The specific date to filter for (usually yesterday)
+            
+        Returns:
+            List of articles with rich metadata that match both date and AI criteria
+        """
+        if not markdown_content:
+            return []
+        
+        # Format dates for GPT
+        target_date_str = target_date.strftime('%Y-%m-%d')
+        target_date_readable = target_date.strftime('%B %d, %Y')
+        today = date.today()
+        today_str = today.strftime('%Y-%m-%d')
+        
+        # Calculate relative date context
+        days_ago = (today - target_date).days
+        relative_context = ""
+        if days_ago == 1:
+            relative_context = "yesterday"
+        elif days_ago == 0:
+            relative_context = "today"
+        else:
+            relative_context = f"{days_ago} days ago"
+        
+        system_prompt = f"""You are an AI news curator that extracts and filters articles from website homepages.
+        
+Your task:
+1. Extract ALL article links from the markdown content
+2. Filter for articles that meet BOTH criteria:
+   - Published on {target_date_str} ({target_date_readable}, which is {relative_context} relative to {today_str})
+   - Related to AI/ML/LLM topics
+
+For date identification, look for:
+- Explicit dates in URLs (e.g., /2025/09/01/, /2025-09-01/)
+- Date mentions in link text or nearby content
+- Relative date indicators ("yesterday", "today", "1 day ago" relative to {today_str})
+- Publication dates in the markdown content
+- Be flexible with date formats but strict about the actual date
+
+For AI relevance, look for content about:
+- Artificial Intelligence, Machine Learning, Deep Learning, Neural Networks
+- Large Language Models (GPT, Claude, Gemini, LLaMA, Mistral, Llama, etc.)
+- AI companies (OpenAI, Anthropic, Google AI, Meta AI, Microsoft AI, etc.)
+- AI research, papers, benchmarks, breakthroughs
+- AI tools, APIs, frameworks (LangChain, HuggingFace, TensorFlow, PyTorch, etc.)
+- AI applications, products, services
+- Generative AI, AGI, AI agents, AI assistants
+- Computer vision, NLP, robotics with AI focus
+- AI ethics, safety, alignment, regulation, policy
+
+Convert any relative URLs to absolute URLs using base URL: {base_url}
+
+Return a JSON object with an 'articles' array containing detailed metadata:
+{{
+  "articles": [
+    {{
+      "url": "https://example.com/2025/09/01/ai-article",
+      "title": "Article Title",
+      "published_date": "{target_date_str}",
+      "date_confidence": "high|medium|low",
+      "date_source": "url|text|metadata|inferred",
+      "ai_relevance_score": 0.95,
+      "ai_keywords": ["OpenAI", "GPT", "LLM"],
+      "snippet": "Brief excerpt from the article...",
+      "reason": "URL contains date, title mentions OpenAI and GPT"
+    }}
+  ]
+}}
+
+Be selective - only include articles clearly from {target_date_str} AND clearly about AI/ML.
+If no articles match both criteria, return an empty articles array."""
+
+        user_prompt = f"""Extract and filter AI articles from {target_date_str} in this homepage content:
+
+{markdown_content[:15000]}  # Limit content size for token efficiency
+
+Base URL: {base_url}
+Today's date: {today_str}
+Target date: {target_date_str} ({relative_context})"""
+
+        try:
+            response = await self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_completion_tokens=3000,
+                response_format={"type": "json_object"}
+            )
+            
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            
+            articles = result.get('articles', [])
+            
+            # Ensure all URLs are absolute
+            from urllib.parse import urljoin
+            for article in articles:
+                if not article.get('url', '').startswith('http'):
+                    article['url'] = urljoin(base_url, article['url'])
+            
+            print(f"GPT extracted and filtered {len(articles)} articles from {target_date_str} that are AI-related")
+            
+            # Log some details for debugging
+            if articles:
+                high_conf = sum(1 for a in articles if a.get('date_confidence') == 'high')
+                med_conf = sum(1 for a in articles if a.get('date_confidence') == 'medium')
+                low_conf = sum(1 for a in articles if a.get('date_confidence') == 'low')
+                print(f"  Date confidence: {high_conf} high, {med_conf} medium, {low_conf} low")
+                
+                avg_ai_score = sum(a.get('ai_relevance_score', 0) for a in articles) / len(articles)
+                print(f"  Average AI relevance score: {avg_ai_score:.2f}")
+            
+            return articles
+            
+        except Exception as e:
+            print(f"Error in extract_and_filter_articles: {e}")
+            return []
+    
     async def evaluate_tweets_batch(self, tweets: List[Dict], target_date: date = None) -> List[Dict]:
         """
         Evaluate multiple tweets for AI relevance in a single GPT call

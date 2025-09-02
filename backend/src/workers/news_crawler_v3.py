@@ -172,11 +172,11 @@ class EnhancedNewsCrawlerV3:
         return processed_tweets
     
     async def _process_website_source(self, source: Dict, target_date: date) -> List[Dict]:
-        """Process website with new flow: Firecrawl homepage -> GPT combined filter -> Firecrawl articles"""
+        """Process website with optimized flow: Firecrawl homepage -> GPT extract & filter -> Firecrawl articles"""
         articles = []
-        articles_total = 0
         articles_gpt_filtered = 0
         articles_scraped = 0
+        articles_with_valid_dates = 0
         
         try:
             # Step 1: Scrape homepage
@@ -186,40 +186,37 @@ class EnhancedNewsCrawlerV3:
                 logger.error(f"Failed to scrape {source['name']}: {homepage_result.get('error')}")
                 return []
             
-            # Step 2: Extract ALL article links (no filtering yet!)
-            article_links = await self.firecrawl.extract_article_links(
+            # Step 2: GPT extracts and filters articles in one call (combines extraction + filtering)
+            gpt_filtered_articles = await self.openai.extract_and_filter_articles(
                 homepage_result.get('markdown', ''),
-                source['url']
-            )
-            
-            articles_total = len(article_links)
-            logger.info(f"  Found {articles_total} total links from {source['name']}")
-            
-            if not article_links:
-                logger.info(f"  No articles found on {source['name']} homepage")
-                return []
-            
-            # Step 3: Send ALL articles to GPT for combined date + AI filtering
-            # GPT will identify articles that are BOTH from target_date AND AI-related
-            gpt_filtered_articles = await self.openai.evaluate_articles_date_and_ai(
-                article_links,
-                target_date=target_date
+                source['url'],
+                target_date
             )
             
             articles_gpt_filtered = len(gpt_filtered_articles)
-            logger.info(f"  GPT identified {articles_gpt_filtered} articles from {target_date} that are AI-related")
+            logger.info(f"  GPT extracted and filtered {articles_gpt_filtered} AI articles from {target_date}")
             
             if not gpt_filtered_articles:
                 logger.info(f"  No AI articles from {target_date} found on {source['name']}")
                 return []
             
-            # Step 4: Scrape only GPT-approved articles (both date AND AI matched)
+            # Step 3: Process GPT-filtered articles
             for article in gpt_filtered_articles[:10]:  # Limit to 10 articles per source
                 try:
+                    # Skip low-confidence dates
+                    if article.get('date_confidence') == 'low':
+                        logger.info(f"  Skipping low-confidence date article: {article.get('title', article['url'][:50])}")
+                        continue
+                    
                     # Check if article already exists
                     exists = await self.supabase.check_article_exists(article['url'])
                     if exists:
                         logger.debug(f"  Article already exists: {article['url']}")
+                        continue
+                    
+                    # Skip if AI relevance is too low
+                    if article.get('ai_relevance_score', 1.0) < 0.6:
+                        logger.info(f"  Skipping low AI relevance ({article.get('ai_relevance_score', 'N/A')}): {article.get('title', article['url'][:50])}")
                         continue
                     
                     # Scrape the GPT-approved article
@@ -230,17 +227,55 @@ class EnhancedNewsCrawlerV3:
                         logger.debug(f"  Failed to scrape article {article['url']}")
                         continue
                     
-                    # Log GPT's confidence level for debugging
-                    if article.get('gpt_confidence'):
-                        logger.debug(f"  Article confidence: {article['gpt_confidence']} - {article.get('gpt_reason', '')}")
+                    # Determine the best publication date
+                    # Priority: 1) Firecrawl metadata, 2) GPT's extracted date, 3) target_date as fallback
+                    published_date = None
                     
-                    # Store the article (GPT already verified both date AND AI relevance)
+                    # Try to use Firecrawl's published_date from metadata
+                    if article_result.get('published_date'):
+                        published_date = article_result['published_date']
+                        logger.debug(f"  Using Firecrawl metadata date: {published_date}")
+                    # Otherwise use GPT's extracted date
+                    elif article.get('published_date'):
+                        published_date = article['published_date']
+                        logger.debug(f"  Using GPT extracted date: {published_date} (confidence: {article.get('date_confidence', 'unknown')}))")
+                    # Last resort: use target_date
+                    else:
+                        published_date = target_date.isoformat()
+                        logger.debug(f"  No date found, using target date as fallback: {published_date}")
+                    
+                    # Validate the date matches our target (with some tolerance for timezone issues)
+                    from datetime import datetime, timedelta
+                    try:
+                        # Parse the published date
+                        if 'T' in published_date:
+                            pub_date = datetime.fromisoformat(published_date.replace('Z', '+00:00')).date()
+                        else:
+                            pub_date = datetime.fromisoformat(published_date).date()
+                        
+                        # Check if date is within acceptable range (target_date ± 1 day for timezone issues)
+                        date_diff = abs((pub_date - target_date).days)
+                        if date_diff > 1:
+                            logger.warning(f"  Date mismatch: article from {pub_date}, target was {target_date}. Skipping.")
+                            continue
+                        
+                        articles_with_valid_dates += 1
+                    except Exception as e:
+                        logger.warning(f"  Could not validate date '{published_date}': {e}")
+                    
+                    # Log confidence and reasoning for debugging
+                    logger.debug(f"  Article: {article.get('title', 'No title')[:60]}")
+                    logger.debug(f"    Date confidence: {article.get('date_confidence', 'N/A')}, source: {article.get('date_source', 'N/A')}")
+                    logger.debug(f"    AI score: {article.get('ai_relevance_score', 'N/A')}, keywords: {article.get('ai_keywords', [])}")
+                    logger.debug(f"    Reason: {article.get('reason', 'No reason provided')}")
+                    
+                    # Store the article with actual publication date
                     full_content = article_result.get('markdown', '')[:10000]
                     article_data = {
                         'source_id': source['id'],
                         'headline': article_result.get('title') or article.get('title', 'Untitled'),
                         'url': article['url'],
-                        'published_at': target_date.isoformat(),
+                        'published_at': published_date,  # Use actual date, not target_date!
                         'full_content': full_content,
                         'is_ai_related': True,  # GPT confirmed this
                         'processing_stage': 'pending_summary',
@@ -258,17 +293,21 @@ class EnhancedNewsCrawlerV3:
                 except Exception as e:
                     logger.error(f"Error processing article {article['url']}: {str(e)}")
             
-            # Update pipeline statistics with new flow metrics
-            self.pipeline_stats['articles_checked'] += articles_total  # Total found on homepage
-            self.pipeline_stats['articles_date_matched'] += articles_gpt_filtered  # GPT found matching date
+            # Update pipeline statistics with optimized flow metrics
+            self.pipeline_stats['articles_date_matched'] += articles_with_valid_dates  # Articles with valid dates
             self.pipeline_stats['articles_pre_filtered'] += articles_gpt_filtered  # GPT filtered (date + AI)
             self.pipeline_stats['articles_scraped'] += articles_scraped  # Actually scraped
             self.pipeline_stats['articles_collected'] += len(articles)  # Successfully saved
-            # Calculate efficiency - we only scrape what GPT approves
-            self.pipeline_stats['api_calls_saved'] += max(0, articles_total - articles_scraped)
             
             logger.info(f"  ✓ {source['name']}: {len(articles)} AI articles stored")
-            logger.info(f"    New flow: {articles_total} total → {articles_gpt_filtered} GPT-filtered (date+AI) → {articles_scraped} scraped → {len(articles)} saved")
+            logger.info(f"    Optimized flow: GPT extracted {articles_gpt_filtered} → scraped {articles_scraped} → validated {articles_with_valid_dates} dates → saved {len(articles)}")
+            
+            # Log date confidence breakdown if we had filtered articles
+            if articles_gpt_filtered > 0:
+                high_conf = sum(1 for a in gpt_filtered_articles[:10] if a.get('date_confidence') == 'high')
+                med_conf = sum(1 for a in gpt_filtered_articles[:10] if a.get('date_confidence') == 'medium')
+                low_conf = sum(1 for a in gpt_filtered_articles[:10] if a.get('date_confidence') == 'low')
+                logger.info(f"    Date confidence: {high_conf} high, {med_conf} medium, {low_conf} low")
             
         except Exception as e:
             logger.error(f"Error processing website {source['name']}: {str(e)}")
